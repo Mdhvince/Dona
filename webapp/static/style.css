@@ -117,7 +117,7 @@ h1 {
 .spinner {
   width: 22px;
   height: 22px;
-  margin: 3rem auto;
+  margin: 3rem 0; /* left-aligned, where the answer text will start */
   border: 2px solid #e5e5e5;
   border-top-color: #1a1a1a;
   border-radius: 50%;
