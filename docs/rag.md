@@ -121,10 +121,20 @@ Le contexte envoyé au LLM inclut le nom de fichier de chaque extrait, pour
 qu'il puisse nommer les documents et distinguer les années. Le code
 reconstruit ensuite les liens réels depuis les métadonnées des chunks cités
 (`source_readable` pour le terminal, `sources_info` pour la webapp), avec
-déduplication. Prompt système et descriptions de champs en français, comme
-le corpus. La réponse HTML est assainie par `nh3` avant envoi au front
+déduplication. La réponse HTML est assainie par `nh3` avant envoi au front
 (python-markdown laisse passer le HTML brut : vecteur XSS via un document
 indexé malveillant).
+
+Prompt système en français (comme le corpus et les descriptions de champs),
+en règles numérotées courtes adaptées à un modèle local : contexte délimité
+par `<contexte>` et traité comme des données (anti-injection), réponse
+partielle si l'information est incomplète, fidélité absolue des montants et
+identifiants (prolonge la validation d'ingestion), priorité au document le
+plus récent avec année toujours précisée, hypothèse indiquée si la question
+est ambiguë, et date du jour injectée (`{date}`) pour les questions
+relatives ("cette année", "mon dernier..."). `sources` doit couvrir tous
+les extraits utilisés et n'être vide que si l'information est absente : une
+réponse factuelle non sourcée est ainsi détectable en code.
 
 ## Webapp (`webapp/`, convention flask.md)
 
