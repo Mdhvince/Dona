@@ -6,6 +6,7 @@ const answerEl = document.getElementById("answer");
 const sourceContent = document.getElementById("source-content");
 const reindexButton = document.getElementById("reindex-button");
 const reindexStatus = document.getElementById("reindex-status");
+const reindexWarnings = document.getElementById("reindex-warnings");
 
 function resetInteraction() {
   answerEl.hidden = true;
@@ -15,38 +16,45 @@ function resetInteraction() {
   sourceContent.classList.add("empty");
 }
 
-function showSource(source) {
+function showSources(sources) {
   sourceContent.textContent = "";
-  if (!source) {
+  if (!sources || sources.length === 0) {
     sourceContent.textContent = "Aucune source citée.";
     return;
   }
   sourceContent.classList.remove("empty");
+  if (sources.length > 1) {
+    sourceContent.classList.add("multiple");
+  } else {
+    sourceContent.classList.remove("multiple");
+  }
 
-  // #page=N opens the browser PDF viewer directly on the cited page
-  const url = source.url + (source.page !== null ? `#page=${source.page}` : "");
+  for (const source of sources) {
+    // #page=N opens the browser PDF viewer directly on the cited page
+    const url = source.url + (source.page !== null ? `#page=${source.page}` : "");
 
-  // Non-interactive preview (pointer-events disabled in CSS) wrapped in a
-  // link: clicking anywhere opens the document in a new tab
-  const link = document.createElement("a");
-  link.className = "preview";
-  link.href = url;
-  link.target = "_blank";
-  link.title = "Ouvrir le document";
+    // Non-interactive preview (pointer-events disabled in CSS) wrapped in a
+    // link: clicking anywhere opens the document in a new tab
+    const link = document.createElement("a");
+    link.className = "preview";
+    link.href = url;
+    link.target = "_blank";
+    link.title = "Ouvrir le document";
 
-  const frame = document.createElement("iframe");
-  frame.src = source.url + (source.page !== null
-    ? `#page=${source.page}&toolbar=0&navpanes=0`
-    : "#toolbar=0&navpanes=0");
-  link.appendChild(frame);
-  sourceContent.appendChild(link);
+    const frame = document.createElement("iframe");
+    frame.src = source.url + (source.page !== null
+      ? `#page=${source.page}&toolbar=0&navpanes=0`
+      : "#toolbar=0&navpanes=0");
+    link.appendChild(frame);
+    sourceContent.appendChild(link);
 
-  const caption = document.createElement("span");
-  caption.className = "caption";
-  caption.textContent = source.page !== null
-    ? `${source.name} - page ${source.page}`
-    : source.name;
-  sourceContent.appendChild(caption);
+    const caption = document.createElement("span");
+    caption.className = "caption";
+    caption.textContent = source.page !== null
+      ? `${source.name} - page ${source.page}`
+      : source.name;
+    sourceContent.appendChild(caption);
+  }
 }
 
 form.addEventListener("submit", async (event) => {
@@ -69,7 +77,7 @@ form.addEventListener("submit", async (event) => {
 
     answerEl.innerHTML = data.response;
     answerEl.hidden = false;
-    showSource(data.source);
+    showSources(data.sources);
   } catch (err) {
     answerEl.textContent = `Une erreur est survenue : ${err.message}`;
     answerEl.classList.add("error");
@@ -80,9 +88,24 @@ form.addEventListener("submit", async (event) => {
   }
 });
 
+function showValidationWarnings(warnings) {
+  reindexWarnings.hidden = warnings.length === 0;
+  if (warnings.length === 0) return;
+  reindexWarnings.querySelector("summary").textContent =
+    `${warnings.length} alerte(s) de validation`;
+  const list = reindexWarnings.querySelector("ul");
+  list.textContent = "";
+  for (const warning of warnings) {
+    const item = document.createElement("li");
+    item.textContent = `${warning.file} : ${warning.message}`;
+    list.appendChild(item);
+  }
+}
+
 function showReindexState(state) {
   reindexButton.disabled = state.running;
   if (state.running) {
+    reindexWarnings.hidden = true;
     if (state.total > 0) {
       const percent = Math.round((state.done / state.total) * 100);
       reindexStatus.textContent =
@@ -97,6 +120,7 @@ function showReindexState(state) {
     const r = state.result;
     reindexStatus.textContent =
       `${r.added} ajouté(s), ${r.updated} mis à jour, ${r.removed} retiré(s)`;
+    showValidationWarnings(r.warnings || []);
   } else {
     reindexStatus.textContent = "";
   }

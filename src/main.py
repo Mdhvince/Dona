@@ -1,19 +1,16 @@
 from pathlib import Path
 
-from dotenv import load_dotenv
 from langchain_classic.retrievers import MultiQueryRetriever
 from langchain_chroma import Chroma
 
-import response_helper
 from config import load_config, llm_client, embedding_client
 from response_helper import answer
-from retrieval import HybridRetriever
+from retrieval import HybridRetriever, MULTI_QUERY_PROMPT
 
 PERSIST_DIR = str(Path(__file__).parent.parent / "vectordb")
 
 
 if __name__ == "__main__":
-    load_dotenv()
     config = load_config()
 
     if not Path(PERSIST_DIR).exists():
@@ -27,7 +24,8 @@ if __name__ == "__main__":
     hybrid_retriever = HybridRetriever.from_vectordb(vectordb, **config["retriever"])
 
     # MultiQueryRetriever generates multiple versions of the query to improve retrieval performance.
-    retriever = MultiQueryRetriever.from_llm(retriever=hybrid_retriever, llm=chat_llm, include_original=True)
+    retriever = MultiQueryRetriever.from_llm(retriever=hybrid_retriever, llm=chat_llm,
+                                             prompt=MULTI_QUERY_PROMPT, include_original=True)
 
     ans = answer("Quel est le numero de siret de Myelink?", retriever, chat_llm)
     response = ans.response

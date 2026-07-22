@@ -64,6 +64,20 @@ def _numbers(text):
     return set(re.findall(r"\d+", text))
 
 
+def find_invented_numbers(raw_text, transcribed_texts):
+    """Numbers present in the transcriptions but absent from the reference
+    text. Two granularities (raw and collapsed) tolerate digit-grouping
+    differences, plus a substring test for long identifiers that the
+    reference segments differently. Pure function, testable without a PDF."""
+    collapsed_raw = _collapse_digit_groups(raw_text)
+    reference = _numbers(raw_text) | _numbers(collapsed_raw)
+    transcribed = set()
+    for text in transcribed_texts:
+        transcribed |= _numbers(_collapse_digit_groups(text))
+    return {n for n in transcribed - reference
+            if len(n) >= 2 and n not in collapsed_raw}
+
+
 def validate_transcription(path, documents):
     """Anti-hallucination guard: every number transcribed by the VLM must
     exist in the PDF text layer, which holds the real values even when
@@ -76,16 +90,7 @@ def validate_transcription(path, documents):
     if not raw.strip():
         return ["PDF scanné sans couche texte : transcription non vérifiable, contrôle manuel conseillé"]
 
-    # Two granularities (raw and collapsed) to tolerate digit-grouping
-    # differences, plus a substring test for long identifiers that the text
-    # layer segments differently.
-    collapsed_raw = _collapse_digit_groups(raw)
-    reference = _numbers(raw) | _numbers(collapsed_raw)
-    transcribed = set()
-    for doc in documents:
-        transcribed |= _numbers(_collapse_digit_groups(doc.page_content))
-    invented = {n for n in transcribed - reference
-                if len(n) >= 2 and n not in collapsed_raw}
+    invented = find_invented_numbers(raw, [doc.page_content for doc in documents])
     if invented:
         return ["nombres absents de la couche texte : " + ", ".join(sorted(invented)[:10])]
     return []
@@ -104,9 +109,10 @@ def load_pdf(path, vlm):
         documents.append(
             Document(page_content=_transcribe(vlm, _render_page(pdf[i]), "image/png", PDF_PROMPT),
                      metadata={"source": str(path), "page": i + 1}))
-    for warning in validate_transcription(path, documents):
+    warnings = validate_transcription(path, documents)
+    for warning in warnings:
         print(f"  ⚠ validation {path.name} : {warning}")
-    return documents
+    return documents, warnings
 
 
 def load_image(path, vlm):
@@ -137,9 +143,12 @@ def iter_files(docs_dirs):
 
 
 def load_file(root, path, vlm):
+    """Returns (documents, warnings) for a single file; warnings only come
+    from the PDF transcription validation."""
     suffix = path.suffix.lower()
+    warnings = []
     if suffix == ".pdf":
-        documents = load_pdf(path, vlm)
+        documents, warnings = load_pdf(path, vlm)
     elif suffix in IMAGE_SUFFIXES:
         documents = load_image(path, vlm)
     else:
@@ -151,7 +160,7 @@ def load_file(root, path, vlm):
     # mtime lets sync() detect modified files on the next run
     for doc in documents:
         doc.metadata.update(tags, mtime=path.stat().st_mtime)
-    return documents
+    return documents, warnings
 
 
 def sync(docs_dirs, vectordb, vlm, chunk_size, chunk_overlap, on_progress=None):
@@ -183,15 +192,18 @@ def sync(docs_dirs, vectordb, vlm, chunk_size, chunk_overlap, on_progress=None):
         on_progress(0, total, None)
 
     added = updated = 0
+    all_warnings = []
     for done, (source, root, path) in enumerate(to_process, 1):
         try:
-            documents = load_file(root, path, vlm)
+            documents, warnings = load_file(root, path, vlm)
         except Exception as exc:
             print(f"⚠ échec sur {path.name} : {exc}")
+            all_warnings.append({"file": path.name, "message": f"échec : {exc}"})
             continue
         finally:
             if on_progress:
                 on_progress(done, total, path.name)
+        all_warnings.extend({"file": path.name, "message": warning} for warning in warnings)
         chunks = markdown_splitter(documents, chunk_size=chunk_size, chunk_overlap=chunk_overlap)
         entry = indexed.get(source)
         if entry:
@@ -204,8 +216,9 @@ def sync(docs_dirs, vectordb, vlm, chunk_size, chunk_overlap, on_progress=None):
         print(f"  indexé : {path.relative_to(root)} ({len(chunks)} chunks) [{done}/{total}]")
 
     print(f"Synchronisation terminée : {added} ajouté(s), {updated} mis à jour, "
-          f"{len(removed)} retiré(s)")
-    return {"added": added, "updated": updated, "removed": len(removed)}
+          f"{len(removed)} retiré(s), {len(all_warnings)} alerte(s)")
+    return {"added": added, "updated": updated, "removed": len(removed),
+            "warnings": all_warnings}
 
 
 if __name__ == "__main__":

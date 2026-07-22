@@ -4,7 +4,7 @@
 model = "gpt-oss:20b"
 base_url = "http://localhost:11434/v1"  # Ollama's OpenAI-compatible API
 temperature = 0.15
-max_tokens = 2000
+max_tokens = 4000  # structured output with long answers gets truncated below this
 
 [embedding]
 model = "qwen3-embedding:8b"
@@ -21,8 +21,8 @@ reasoning = false
 [retriever]
 k1 = 1.5      # BM25: term frequency saturation [1.2 - 2.0]
 b = 0.75      # BM25: document length normalization [0.0 - 1.0]
-k = 4         # number of documents returned after fusion
-fetch_k = 10  # depth of each ranking before RRF fusion
+k = 6         # number of documents returned after fusion
+fetch_k = 12  # depth of each ranking before RRF fusion
 rrf_k = 60    # Reciprocal Rank Fusion smoothing constant
 
 [ingestion]

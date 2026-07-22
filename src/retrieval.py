@@ -3,10 +3,21 @@ import unicodedata
 
 import nltk
 from langchain_core.documents import Document
+from langchain_core.prompts import PromptTemplate
 from langchain_core.retrievers import BaseRetriever
 from nltk.corpus import stopwords
 from nltk.stem.snowball import SnowballStemmer
 from rank_bm25 import BM25Okapi
+
+# French prompt for MultiQueryRetriever: the default one is in English, which
+# can make a local model generate English variants over a French corpus and
+# silently degrade recall.
+MULTI_QUERY_PROMPT = PromptTemplate.from_template(
+    "Tu génères des variantes de recherche pour retrouver des documents.\n"
+    "Propose 3 reformulations différentes de la question suivante, en "
+    "français, qui utilisent d'autres mots ou un autre angle. Écris une "
+    "reformulation par ligne, sans numérotation ni commentaire.\n"
+    "Question : {question}")
 
 try:
     _STOPWORDS_FR = stopwords.words("french")

@@ -103,28 +103,34 @@ Recherche hybride fusionnée par Reciprocal Rank Fusion :
 - **RRF** : score 1/(rrf_k + rang) additionné entre les deux classements.
 
 Par-dessus, `MultiQueryRetriever` (LangChain) génère des variantes de la
-question avec le LLM pour élargir le rappel. Paramètres dans
-`config.toml [retriever]`. BM25 est un index en mémoire reconstruit au
-démarrage de la webapp et après chaque ré-indexation.
+question avec le LLM pour élargir le rappel - avec un prompt custom en
+français (`retrieval.MULTI_QUERY_PROMPT`), le prompt anglais par défaut
+pouvant produire des variantes anglaises sur un corpus français. Paramètres
+dans `config.toml [retriever]` (k=6 après fusion). BM25 est un index en
+mémoire reconstruit au démarrage de la webapp et après chaque ré-indexation.
 
 ## Génération (`src/response_helper.py`)
 
 Sortie structurée Pydantic via `with_structured_output` :
 
-- `response` : la réponse en Markdown, sans mention de source ;
-- `source` : le numéro `[i]` de l'extrait utilisé, pas une URI : un entier
-  est difficile à halluciner et se valide par bornes.
+- `response` : la réponse en Markdown, sans mention des sources ;
+- `sources` : les numéros `[i]` des extraits utilisés, pas des URIs : des
+  entiers sont difficiles à halluciner et se valident par bornes.
 
-Le code reconstruit ensuite le lien réel depuis les métadonnées du chunk
-cité (`source_readable` pour le terminal, `source_path`/`source_page` pour
-la webapp). Prompt système et descriptions de champs en français, comme le
-corpus.
+Le contexte envoyé au LLM inclut le nom de fichier de chaque extrait, pour
+qu'il puisse nommer les documents et distinguer les années. Le code
+reconstruit ensuite les liens réels depuis les métadonnées des chunks cités
+(`source_readable` pour le terminal, `sources_info` pour la webapp), avec
+déduplication. Prompt système et descriptions de champs en français, comme
+le corpus. La réponse HTML est assainie par `nh3` avant envoi au front
+(python-markdown laisse passer le HTML brut : vecteur XSS via un document
+indexé malveillant).
 
 ## Webapp (`webapp/`, convention flask.md)
 
 - `GET /` : page unique (question, réponse, panneau Sources).
-- `POST /ask` : question -> réponse HTML (Markdown converti côté serveur)
-  + source {name, page, url}.
+- `POST /ask` : question -> réponse HTML (Markdown converti et assaini côté
+  serveur) + sources [{name, page, url}], un aperçu par source cité.
 - `GET /source?path=...` : sert le document (les liens file:// sont bloqués
   en HTTP), restreint aux racines indexées. Le panneau Sources affiche un
   aperçu du PDF (iframe, ouvert à la page citée) cliquable.
@@ -133,7 +139,9 @@ corpus.
   volontairement absente de l'interface : c'est un batch de plusieurs heures,
   réservé au terminal (voir Commandes).
 - `GET /reindex/status` : `{running, done, total, current, result, error}`,
-  pollé par le front pour afficher la progression (x/total, %).
+  pollé par le front pour afficher la progression (x/total, %). Les alertes
+  de la validation anti-hallucination remontent dans `result.warnings` et
+  s'affichent dans un panneau dépliable.
 
 Pas d'historique : chaque question efface l'interaction précédente.
 
@@ -142,6 +150,7 @@ Pas d'historique : chaque question efface l'interaction précédente.
 ```bash
 uv run python src/ingest.py          # ingestion incrémentale (CLI)
 uv run python run.py                 # webapp sur http://127.0.0.1:5000
+uv run pytest                        # tests unitaires (tests/)
 ```
 
 Reconstruction complète de l'index (uniquement en terminal) - nécessaire

@@ -63,6 +63,22 @@ h1 {
   cursor: default;
 }
 
+/* --- Validation warnings --- */
+#reindex-warnings {
+  margin: -1.5rem 0 2rem;
+  font-size: 0.8rem;
+  color: #767676;
+}
+
+#reindex-warnings summary {
+  cursor: pointer;
+}
+
+#reindex-warnings ul {
+  margin: 0.5rem 0 0 1.25rem;
+  line-height: 1.5;
+}
+
 /* --- Form --- */
 #ask-form {
   display: flex;
@@ -176,6 +192,15 @@ aside h2 {
 
 .preview {
   display: block;
+}
+
+.caption + .preview {
+  margin-top: 1rem;
+}
+
+/* Smaller previews when several sources are shown */
+.multiple .preview iframe {
+  height: 220px;
 }
 
 .preview iframe {

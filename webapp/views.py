@@ -2,6 +2,7 @@ import sys
 import threading
 from pathlib import Path
 
+import nh3
 from flask import Flask, abort, jsonify, render_template, request, send_file, url_for
 from markdown import markdown
 
@@ -15,7 +16,7 @@ from langchain_classic.retrievers import MultiQueryRetriever
 from config import load_config, llm_client, embedding_client, vlm_client
 from ingest import DOCS_DIRS, sync
 from response_helper import answer
-from retrieval import HybridRetriever
+from retrieval import HybridRetriever, MULTI_QUERY_PROMPT
 
 PERSIST_DIR = str(ROOT / "vectordb")
 
@@ -40,6 +41,7 @@ def build_retriever():
         return
     hybrid_retriever = HybridRetriever.from_vectordb(vectordb, **config["retriever"])
     retriever = MultiQueryRetriever.from_llm(retriever=hybrid_retriever, llm=chat_llm,
+                                             prompt=MULTI_QUERY_PROMPT,
                                              include_original=True)
 
 
@@ -69,14 +71,13 @@ def run_reindex():
         reindex_state["running"] = False
 
 
-def source_payload(result):
+def sources_payload(result):
     """Source metadata ready for the front end: name, page and a URL served
     by the /source route (file:// links are blocked on HTTP pages)."""
-    if not result.source_path:
-        return None
-    return {"name": Path(result.source_path).name,
-            "page": result.source_page,
-            "url": url_for("source", path=result.source_path)}
+    return [{"name": Path(info["path"]).name,
+             "page": info["page"],
+             "url": url_for("source", path=info["path"])}
+            for info in result.sources_info]
 
 
 @app.route("/")
@@ -91,9 +92,14 @@ def ask():
         return jsonify(error="Question vide."), 400
     if retriever is None:
         return jsonify(error="Index vide : lance une ré-indexation."), 503
-    result = answer(question, retriever, chat_llm)
-    return jsonify(response=markdown(result.response, extensions=["tables"]),
-                   source=source_payload(result))
+    try:
+        result = answer(question, retriever, chat_llm)
+    except Exception:
+        app.logger.exception("answer() failed")
+        return jsonify(error="Le modèle n'a pas réussi à produire une réponse, réessaie."), 500
+    # nh3 strips raw HTML that python-markdown lets through (XSS via corpus)
+    return jsonify(response=nh3.clean(markdown(result.response, extensions=["tables"])),
+                   sources=sources_payload(result))
 
 
 @app.route("/source")
