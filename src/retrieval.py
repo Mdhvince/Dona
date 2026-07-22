@@ -25,38 +25,38 @@ STEMMER = SnowballStemmer("french")
 
 
 def tokenize(text):
-    """Normalise pour que la question et les documents se rencontrent :
-    minuscules et sans accents (« numero » matche « numéro »), sans stopwords
-    (BM25 se concentre sur les termes discriminants), et raciné (« création »
-    et « créer » partagent la racine « cre »)."""
+    """Normalize so the question and the documents meet: lowercase without
+    accents ("numero" matches "numéro"), stopwords removed (BM25 focuses on
+    discriminating terms), and stemmed ("création" and "créer" share the
+    root "cre")."""
     tokens = re.findall(r"\w+", strip_accents(text.lower()))
     return [STEMMER.stem(t) for t in tokens if t not in STOPWORDS]
 
 
 class HybridRetriever(BaseRetriever):
     """
-    Recherche hybride : sémantique (Chroma) + keyword (BM25), fusionnées par
-    Reciprocal Rank Fusion. Chaque document reçoit un score 1/(rrf_k + rang)
-    dans chaque classement, et les scores s'additionnent — un document bien
-    classé par les deux recherches remonte en tête.
+    Hybrid search: semantic (Chroma) + keyword (BM25), fused with Reciprocal
+    Rank Fusion. Each document gets a 1/(rrf_k + rank) score in each ranking
+    and the scores add up: a document ranked well by both searches rises to
+    the top.
 
-    Paramètres BM25 :
-    - k1 : saturation de la fréquence des termes (typiquement 1.2 à 2.0)
-    - b  : normalisation par la longueur du document (0.0 à 1.0)
+    BM25 parameters:
+    - k1: term frequency saturation (typically 1.2 to 2.0)
+    - b:  document length normalization (0.0 to 1.0)
     """
 
     vectordb: object
     documents: list
     bm25: object
-    k: int = 4        # nombre de documents retournés après fusion
-    fetch_k: int = 10  # profondeur de chaque classement avant fusion
+    k: int = 4         # number of documents returned after fusion
+    fetch_k: int = 10  # depth of each ranking before fusion
     rrf_k: int = 60
 
     model_config = {"arbitrary_types_allowed": True}
 
     @classmethod
     def from_vectordb(cls, vectordb, k1=1.5, b=0.75, k=4, fetch_k=10, rrf_k=60):
-        """Construit l'index BM25 depuis les chunks déjà stockés dans Chroma."""
+        """Build the BM25 index from the chunks already stored in Chroma."""
         data = vectordb.get()
         documents = [Document(page_content=text, metadata=meta)
                      for text, meta in zip(data["documents"], data["metadatas"])]

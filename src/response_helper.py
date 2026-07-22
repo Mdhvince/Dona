@@ -6,8 +6,9 @@ from pydantic import BaseModel, Field
 
 
 class LLMAnswer(BaseModel):
-    """Sortie structurée du LLM : la source n'est qu'un numéro d'extrait,
-    le lien est reconstruit en dur côté code (pas d'URI hallucinable)."""
+    """Structured LLM output: the source is only a chunk number, the link is
+    rebuilt in code (no hallucinatable URI). Field descriptions are in French
+    because they are part of the prompt sent to the model."""
     response: str = Field(
         description="La réponse à la question, en Markdown, sans mention de la source.")
     source: Optional[int] = Field(
@@ -16,9 +17,9 @@ class LLMAnswer(BaseModel):
 
 
 class Answer(LLMAnswer):
-    # Champs remplis par le code, jamais par le LLM
-    source_readable: Optional[str] = None  # lien Markdown, pour le terminal
-    source_path: Optional[str] = None      # chemin brut, pour les autres interfaces (Flask...)
+    # Fields filled by code, never by the LLM
+    source_readable: Optional[str] = None  # Markdown link, for the terminal
+    source_path: Optional[str] = None      # raw path, for other interfaces (Flask...)
     source_page: Optional[str] = None
 
 
@@ -35,7 +36,7 @@ RAG_PROMPT = ChatPromptTemplate.from_messages([
 
 
 def format_context(docs):
-    """Numérote chaque chunk pour que le LLM puisse le référencer dans `source`."""
+    """Number each chunk so the LLM can reference it in `source`."""
     return "\n\n".join(
         f"[{i}] (page {d.metadata.get('page_label', d.metadata.get('page', '?'))}) {d.page_content}"
         for i, d in enumerate(docs, 1)
@@ -43,8 +44,8 @@ def format_context(docs):
 
 
 def cited_source(docs, num):
-    """(chemin, page) de l'extrait n° `num` (1-indexé) depuis ses métadonnées.
-    (None, None) si le numéro est absent, hors bornes ou sans source."""
+    """(path, page) of chunk number `num` (1-indexed) from its metadata.
+    (None, None) when the number is missing, out of bounds or has no source."""
     if num is None or not 1 <= num <= len(docs):
         return None, None
     d = docs[num - 1]
@@ -56,11 +57,11 @@ def cited_source(docs, num):
 
 
 def source_link(path, page):
-    """Lien Markdown cliquable pour le terminal."""
+    """Clickable Markdown link for the terminal."""
     if not path:
         return None
-    lien = f"[{Path(path).name}]({Path(path).as_uri()})"
-    return f"{lien}, page {page}" if page is not None else lien
+    link = f"[{Path(path).name}]({Path(path).as_uri()})"
+    return f"{link}, page {page}" if page is not None else link
 
 
 def answer(question, retriever, llm_client):

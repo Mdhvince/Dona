@@ -1,20 +1,19 @@
-import os
 import sys
+import threading
 from pathlib import Path
 
-from dotenv import load_dotenv
 from flask import Flask, abort, jsonify, render_template, request, send_file, url_for
 from markdown import markdown
 
-# Les modules de src/ utilisent des imports plats (from config import ...)
+# Modules in src/ use flat imports (from config import ...)
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "src"))
 
 from langchain_chroma import Chroma
 from langchain_classic.retrievers import MultiQueryRetriever
 
-from config import load_config, llm_client, embedding_client
-from ingest import DOCS_DIRS
+from config import load_config, llm_client, embedding_client, vlm_client
+from ingest import DOCS_DIRS, sync
 from response_helper import answer
 from retrieval import HybridRetriever
 
@@ -22,20 +21,57 @@ PERSIST_DIR = str(ROOT / "vectordb")
 
 app = Flask(__name__)
 
-# Pipeline RAG construit une seule fois au démarrage, partagé par les requêtes
-load_dotenv()
+# RAG pipeline built once at startup, shared across requests
 config = load_config()
 chat_llm = llm_client(config)
 vectordb = Chroma(persist_directory=PERSIST_DIR,
-                  embedding_function=embedding_client(config, os.environ.get("OPENROUTER_API_KEY")))
-hybrid_retriever = HybridRetriever.from_vectordb(vectordb, **config["retriever"])
-retriever = MultiQueryRetriever.from_llm(retriever=hybrid_retriever, llm=chat_llm,
-                                         include_original=True)
+                  embedding_function=embedding_client(config))
+
+retriever = None
+
+
+def build_retriever():
+    """(Re)build the retrieval chain. BM25 is an in-memory index, so it must
+    be rebuilt after every vector store update. Stays None while the store
+    is empty (first launch before any indexing)."""
+    global retriever
+    if not vectordb.get(limit=1)["ids"]:
+        retriever = None
+        return
+    hybrid_retriever = HybridRetriever.from_vectordb(vectordb, **config["retriever"])
+    retriever = MultiQueryRetriever.from_llm(retriever=hybrid_retriever, llm=chat_llm,
+                                             include_original=True)
+
+
+build_retriever()
+
+# One reindex at a time, running in a background thread
+reindex_state = {"running": False, "done": 0, "total": 0, "current": None,
+                 "result": None, "error": None}
+reindex_lock = threading.Lock()
+
+
+def on_progress(done, total, current):
+    reindex_state.update(done=done, total=total, current=current)
+
+
+def run_reindex():
+    try:
+        result = sync(DOCS_DIRS, vectordb, vlm_client(config),
+                      chunk_size=config["ingestion"]["chunk_size"],
+                      chunk_overlap=config["ingestion"]["chunk_overlap"],
+                      on_progress=on_progress)
+        build_retriever()
+        reindex_state["result"] = result
+    except Exception as exc:
+        reindex_state["error"] = str(exc)
+    finally:
+        reindex_state["running"] = False
 
 
 def source_payload(result):
-    """Prépare la source d'une réponse pour le front : nom, page et URL
-    servie par la route /source (les liens file:// sont bloqués en HTTP)."""
+    """Source metadata ready for the front end: name, page and a URL served
+    by the /source route (file:// links are blocked on HTTP pages)."""
     if not result.source_path:
         return None
     return {"name": Path(result.source_path).name,
@@ -53,17 +89,36 @@ def ask():
     question = (request.get_json(silent=True) or {}).get("question", "").strip()
     if not question:
         return jsonify(error="Question vide."), 400
+    if retriever is None:
+        return jsonify(error="Index vide : lance une ré-indexation."), 503
     result = answer(question, retriever, chat_llm)
-    return jsonify(response=markdown(result.response),
+    return jsonify(response=markdown(result.response, extensions=["tables"]),
                    source=source_payload(result))
 
 
 @app.route("/source")
 def source():
-    """Sert un document source dans le navigateur, restreint aux racines indexées."""
+    """Serve a source document in the browser, restricted to indexed roots."""
     path = Path(request.args.get("path", "")).resolve()
     if not any(path.is_relative_to(root) for root in DOCS_DIRS):
         abort(403)
     if not path.is_file():
         abort(404)
     return send_file(path)
+
+
+@app.route("/reindex", methods=["POST"])
+def reindex():
+    """Start an incremental reindex in the background, one run at a time.
+    A full rebuild is a long batch reserved for the CLI (--full)."""
+    with reindex_lock:
+        if not reindex_state["running"]:
+            reindex_state.update(running=True, done=0, total=0, current=None,
+                                 result=None, error=None)
+            threading.Thread(target=run_reindex, daemon=True).start()
+    return jsonify(**reindex_state)
+
+
+@app.route("/reindex/status")
+def reindex_status():
+    return jsonify(**reindex_state)

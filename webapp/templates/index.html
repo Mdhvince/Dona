@@ -8,10 +8,16 @@
 </head>
 <body>
   <main>
-    <h1>Assistant</h1>
+    <header>
+      <h1>Assistant</h1>
+      <div class="reindex">
+        <span id="reindex-status"></span>
+        <button id="reindex-button" type="button">Re-indexer</button>
+      </div>
+    </header>
 
     <form id="ask-form" autocomplete="off">
-      <input id="question" type="text" placeholder="Pose ta question…" required autofocus>
+      <input id="question" type="text" placeholder="Pose ta question..." required autofocus>
       <button id="ask-button" type="submit">Demander</button>
     </form>
 
@@ -21,7 +27,7 @@
 
   <aside>
     <h2>Sources</h2>
-    <div id="source-content" class="empty">—</div>
+    <div id="source-content" class="empty">-</div>
   </aside>
 
   <script src="{{ url_for('static', filename='app.js') }}"></script>

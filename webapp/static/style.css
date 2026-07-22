@@ -18,13 +18,52 @@ main {
   padding: 4rem 2rem;
 }
 
-h1 {
-  font-size: 1.25rem;
-  font-weight: 600;
+header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
   margin-bottom: 2.5rem;
 }
 
-/* --- Formulaire --- */
+h1 {
+  font-size: 1.25rem;
+  font-weight: 600;
+}
+
+/* --- Reindex --- */
+.reindex {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+#reindex-status {
+  font-size: 0.8rem;
+  color: #767676;
+}
+
+#reindex-button {
+  font: inherit;
+  font-size: 0.85rem;
+  padding: 0.45rem 0.9rem;
+  border: 1px solid #ccc;
+  border-radius: 6px;
+  background: #fff;
+  color: #1a1a1a;
+  cursor: pointer;
+}
+
+#reindex-button:hover:not(:disabled) {
+  border-color: #1a1a1a;
+}
+
+#reindex-button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+/* --- Form --- */
 #ask-form {
   display: flex;
   gap: 0.5rem;
@@ -73,7 +112,7 @@ h1 {
   to { transform: rotate(360deg); }
 }
 
-/* --- Réponse --- */
+/* --- Answer --- */
 #answer {
   margin-top: 3rem;
   line-height: 1.65;
@@ -91,7 +130,25 @@ h1 {
   font-style: italic;
 }
 
-/* --- Panneau sources --- */
+#answer table {
+  border-collapse: collapse;
+  margin-bottom: 0.8em;
+  font-size: 0.9rem;
+}
+
+#answer th,
+#answer td {
+  border: 1px solid #e5e5e5;
+  padding: 0.4rem 0.75rem;
+  text-align: left;
+}
+
+#answer th {
+  background: #fafafa;
+  font-weight: 600;
+}
+
+/* --- Sources panel --- */
 aside {
   width: 300px;
   border-left: 1px solid #e5e5e5;
@@ -127,7 +184,7 @@ aside h2 {
   height: 380px;
   border: 1px solid #e5e5e5;
   border-radius: 6px;
-  pointer-events: none; /* l'aperçu ne capture pas les clics : c'est le lien qui les reçoit */
+  pointer-events: none; /* the preview never captures clicks: the link does */
 }
 
 .preview:hover iframe {

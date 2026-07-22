@@ -1,22 +1,32 @@
-# Configuration de l'assistant — les clés API restent dans .env
+# Assistant configuration - API keys stay in .env
 
 [llm]
 model = "gpt-oss:20b"
-base_url = "http://localhost:11434/v1"  # API OpenAI-compatible d'Ollama
+base_url = "http://localhost:11434/v1"  # Ollama's OpenAI-compatible API
 temperature = 0.15
 max_tokens = 2000
 
 [embedding]
-model = "openai/text-embedding-3-large"
-base_url = "https://openrouter.ai/api/v1"
+model = "qwen3-embedding:8b"
+base_url = "http://localhost:11434/v1"  # Ollama's OpenAI-compatible API - fully local
+
+[vlm]
+# Vision model: transcribes PDF pages and images to Markdown at ingestion time.
+# reasoning = false: transcription does not need reasoning (~12x faster).
+model = "qwen3.5:9b"
+base_url = "http://localhost:11434"
+temperature = 0.0
+reasoning = false
 
 [retriever]
-k1 = 1.5      # BM25 : saturation de la fréquence des termes [1.2 - 2.0]
-b = 0.75      # BM25 : normalisation par la longueur du document [0.0 - 1.0]
-k = 4         # nombre de documents retournés après fusion
-fetch_k = 10  # profondeur de chaque classement avant fusion RRF
-rrf_k = 60    # constante de lissage du Reciprocal Rank Fusion
+k1 = 1.5      # BM25: term frequency saturation [1.2 - 2.0]
+b = 0.75      # BM25: document length normalization [0.0 - 1.0]
+k = 4         # number of documents returned after fusion
+fetch_k = 10  # depth of each ranking before RRF fusion
+rrf_k = 60    # Reciprocal Rank Fusion smoothing constant
 
 [ingestion]
-chunk_size = 500
-chunk_overlap = 20
+# Size applied to Markdown sections that are still too long after the
+# header-based structural split - 1000 to avoid cutting tables in half.
+chunk_size = 1000
+chunk_overlap = 100

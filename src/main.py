@@ -1,4 +1,3 @@
-import os
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -16,14 +15,13 @@ PERSIST_DIR = str(Path(__file__).parent.parent / "vectordb")
 if __name__ == "__main__":
     load_dotenv()
     config = load_config()
-    api_key = os.environ.get("OPENROUTER_API_KEY")
 
     if not Path(PERSIST_DIR).exists():
-        raise SystemExit("Base vectorielle introuvable — lance d'abord : python src/ingest.py")
+        raise SystemExit("Base vectorielle introuvable - lance d'abord : python src/ingest.py")
 
     chat_llm = llm_client(config)
     vectordb = Chroma(persist_directory=PERSIST_DIR,
-                      embedding_function=embedding_client(config, api_key))
+                      embedding_function=embedding_client(config))
 
     # Hybrid search: semantic (Chroma) + keyword (BM25), fused with Reciprocal Rank Fusion.
     hybrid_retriever = HybridRetriever.from_vectordb(vectordb, **config["retriever"])

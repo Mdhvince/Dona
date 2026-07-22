@@ -4,12 +4,14 @@ const button = document.getElementById("ask-button");
 const spinner = document.getElementById("spinner");
 const answerEl = document.getElementById("answer");
 const sourceContent = document.getElementById("source-content");
+const reindexButton = document.getElementById("reindex-button");
+const reindexStatus = document.getElementById("reindex-status");
 
 function resetInteraction() {
   answerEl.hidden = true;
   answerEl.textContent = "";
   answerEl.classList.remove("error");
-  sourceContent.textContent = "—";
+  sourceContent.textContent = "-";
   sourceContent.classList.add("empty");
 }
 
@@ -21,12 +23,11 @@ function showSource(source) {
   }
   sourceContent.classList.remove("empty");
 
-  // #page=N ouvre le lecteur PDF du navigateur directement à la bonne page
-  const fragment = source.page !== null ? `#page=${source.page}` : "";
-  const url = source.url + fragment;
+  // #page=N opens the browser PDF viewer directly on the cited page
+  const url = source.url + (source.page !== null ? `#page=${source.page}` : "");
 
-  // Aperçu non interactif (pointer-events désactivés en CSS) enveloppé dans
-  // un lien : cliquer n'importe où ouvre le document dans un nouvel onglet
+  // Non-interactive preview (pointer-events disabled in CSS) wrapped in a
+  // link: clicking anywhere opens the document in a new tab
   const link = document.createElement("a");
   link.className = "preview";
   link.href = url;
@@ -43,7 +44,7 @@ function showSource(source) {
   const caption = document.createElement("span");
   caption.className = "caption";
   caption.textContent = source.page !== null
-    ? `${source.name} — page ${source.page}`
+    ? `${source.name} - page ${source.page}`
     : source.name;
   sourceContent.appendChild(caption);
 }
@@ -78,3 +79,43 @@ form.addEventListener("submit", async (event) => {
     button.disabled = false;
   }
 });
+
+function showReindexState(state) {
+  reindexButton.disabled = state.running;
+  if (state.running) {
+    if (state.total > 0) {
+      const percent = Math.round((state.done / state.total) * 100);
+      reindexStatus.textContent =
+        `Indexation... ${state.done}/${state.total} (${percent}%)`;
+    } else {
+      reindexStatus.textContent = "Indexation en cours...";
+    }
+    setTimeout(refreshReindexState, 3000);
+  } else if (state.error) {
+    reindexStatus.textContent = `Erreur : ${state.error}`;
+  } else if (state.result) {
+    const r = state.result;
+    reindexStatus.textContent =
+      `${r.added} ajouté(s), ${r.updated} mis à jour, ${r.removed} retiré(s)`;
+  } else {
+    reindexStatus.textContent = "";
+  }
+}
+
+async function refreshReindexState() {
+  try {
+    const res = await fetch("/reindex/status");
+    showReindexState(await res.json());
+  } catch {
+    reindexStatus.textContent = "";
+  }
+}
+
+reindexButton.addEventListener("click", async () => {
+  reindexButton.disabled = true;
+  const res = await fetch("/reindex", { method: "POST" });
+  showReindexState(await res.json());
+});
+
+// Resume the status display if a reindex is already running (page reload)
+refreshReindexState();
