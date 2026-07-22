@@ -7,9 +7,8 @@ from langchain_chroma import Chroma
 from langchain_core.documents import Document
 from pypdf import PdfReader
 
-from config import load_config
+from config import load_config, embedding_client
 from document_processing import text_splitter
-from llm_clients import embedding_model
 
 HERE = Path(__file__).parent
 PERSIST_DIR = str(HERE.parent / "vectordb")
@@ -45,12 +44,23 @@ def load_documents(docs_dirs):
         if not root.exists():
             print(f"⚠ racine introuvable, ignorée : {root}")
             continue
+
         for path in sorted(root.rglob("*")):
             loader = LOADERS.get(path.suffix.lower())
             if loader is None:
                 continue
+            # Dossiers privés : tout chemin traversant un dossier "_..." est exclu
+            if any(part.startswith("_") for part in path.relative_to(root).parts[:-1]):
+                continue
             try:
-                documents.extend(loader(path))
+                docs = loader(path)
+                # Un tag par niveau de dossier sous la racine, filtrable dans Chroma :
+                # "05 - Clients/Techplaces/x.pdf" -> tag_1="05 - Clients", tag_2="Techplaces"
+                tags = {f"tag_{i}": name
+                        for i, name in enumerate(path.relative_to(root).parts[:-1], 1)}
+                for doc in docs:
+                    doc.metadata.update(tags)
+                documents.extend(docs)
                 print(f"  chargé : {path.relative_to(root)}")
             except Exception as exc:
                 print(f"⚠ échec sur {path.name} : {exc}")
@@ -73,9 +83,6 @@ if __name__ == "__main__":
     config = load_config()
     api_key = os.environ.get("OPENROUTER_API_KEY")
 
-    embedding_client = embedding_model(api_key,
-                                       model_id=config["embedding"]["model"],
-                                       base_url=config["embedding"]["base_url"])
-    ingest(DOCS_DIRS, embedding_client, PERSIST_DIR,
+    ingest(DOCS_DIRS, embedding_client(config, api_key), PERSIST_DIR,
            chunk_size=config["ingestion"]["chunk_size"],
            chunk_overlap=config["ingestion"]["chunk_overlap"])

@@ -3,6 +3,8 @@
 [llm]
 model = "gpt-oss:20b"
 base_url = "http://localhost:11434/v1"  # API OpenAI-compatible d'Ollama
+temperature = 0.15
+max_tokens = 2000
 
 [embedding]
 model = "openai/text-embedding-3-large"

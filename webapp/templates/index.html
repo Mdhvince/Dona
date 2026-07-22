@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Assistant Myelink</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  <main>
+    <h1>Assistant</h1>
+
+    <form id="ask-form" autocomplete="off">
+      <input id="question" type="text" placeholder="Pose ta question…" required autofocus>
+      <button id="ask-button" type="submit">Demander</button>
+    </form>
+
+    <div id="spinner" class="spinner" hidden></div>
+    <section id="answer" hidden></section>
+  </main>
+
+  <aside>
+    <h2>Sources</h2>
+    <div id="source-content" class="empty">—</div>
+  </aside>
+
+  <script src="{{ url_for('static', filename='app.js') }}"></script>
+</body>
+</html>
