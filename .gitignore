@@ -1,0 +1,20 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+
+# Project related files
+.env
+vectordb/
+
+# IDE
+.vscode/
+.idea/
+.jbeval/
+.claude/
