@@ -3,30 +3,10 @@ import unicodedata
 
 import nltk
 from langchain_core.documents import Document
-from langchain_core.prompts import PromptTemplate
 from langchain_core.retrievers import BaseRetriever
 from nltk.corpus import stopwords
 from nltk.stem.snowball import SnowballStemmer
 from rank_bm25 import BM25Okapi
-
-# French prompt for MultiQueryRetriever: the default one is in English, which
-# can make a local model generate English variants over a French corpus and
-# silently degrade recall. It also resolves possessives: the retriever does
-# not know who "mon" refers to, so variants name the person explicitly -
-# the first name is discriminating where the shared family name is not
-# ("VINCESLAS" appears in the mother's passport MRZ too).
-MULTI_QUERY_PROMPT = PromptTemplate.from_template(
-    "Tu génères des variantes de recherche pour retrouver des documents "
-    "dans les fichiers personnels de Medhy Vinceslas (son entreprise "
-    "s'appelle Myelink).\n"
-    "Si la question utilise un déterminant possessif (mon, ma, mes) sans "
-    "nommer de personne, remplace-le par Medhy Vinceslas ou Myelink dans "
-    "tes reformulations ; si la question nomme explicitement une autre "
-    "personne (ma mère, un client...), garde cette personne.\n"
-    "Propose 3 reformulations différentes de la question suivante, en "
-    "français, qui utilisent d'autres mots ou un autre angle. Écris une "
-    "reformulation par ligne, sans numérotation ni commentaire.\n"
-    "Question : {question}")
 
 try:
     _STOPWORDS_FR = stopwords.words("french")

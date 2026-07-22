@@ -11,12 +11,11 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "src"))
 
 from langchain_chroma import Chroma
-from langchain_classic.retrievers import MultiQueryRetriever
 
 from config import load_config, llm_client, embedding_client, vlm_client
 from ingest import DOCS_DIRS, sync
 from response_helper import answer
-from retrieval import HybridRetriever, MULTI_QUERY_PROMPT
+from retrieval import HybridRetriever
 
 PERSIST_DIR = str(ROOT / "vectordb")
 
@@ -39,10 +38,7 @@ def build_retriever():
     if not vectordb.get(limit=1)["ids"]:
         retriever = None
         return
-    hybrid_retriever = HybridRetriever.from_vectordb(vectordb, **config["retriever"])
-    retriever = MultiQueryRetriever.from_llm(retriever=hybrid_retriever, llm=chat_llm,
-                                             prompt=MULTI_QUERY_PROMPT,
-                                             include_original=True)
+    retriever = HybridRetriever.from_vectordb(vectordb, **config["retriever"])
 
 
 build_retriever()

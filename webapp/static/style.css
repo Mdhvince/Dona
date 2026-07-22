@@ -7,12 +7,9 @@ body {
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   color: #1a1a1a;
   background: #fff;
-  display: flex;
-  min-height: 100vh;
 }
 
 main {
-  flex: 1;
   max-width: 720px;
   margin: 0 auto;
   padding: 4rem 2rem;
@@ -164,60 +161,20 @@ h1 {
   font-weight: 600;
 }
 
-/* --- Sources panel --- */
-aside {
-  width: 300px;
-  border-left: 1px solid #e5e5e5;
-  padding: 4rem 1.5rem;
-}
-
-aside h2 {
-  font-size: 0.75rem;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
+/* --- Sources under the answer --- */
+#answer-sources {
+  margin-top: 1.5rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid #e5e5e5;
+  font-size: 0.8rem;
   color: #767676;
-  margin-bottom: 1.25rem;
 }
 
-#source-content {
-  font-size: 0.9rem;
-  line-height: 1.5;
-  overflow-wrap: break-word;
-}
-
-#source-content.empty {
-  color: #b0b0b0;
-}
-
-.preview {
-  display: block;
-}
-
-.caption + .preview {
-  margin-top: 1rem;
-}
-
-/* Smaller previews when several sources are shown */
-.multiple .preview iframe {
-  height: 220px;
-}
-
-.preview iframe {
-  display: block;
-  width: 100%;
-  height: 380px;
-  border: 1px solid #e5e5e5;
-  border-radius: 6px;
-  pointer-events: none; /* the preview never captures clicks: the link does */
-}
-
-.preview:hover iframe {
-  border-color: #b0b0b0;
-}
-
-#source-content .caption {
-  display: block;
-  margin-top: 0.5rem;
+#answer-sources a {
   color: #767676;
+  text-decoration: none;
+}
+
+#answer-sources a:hover {
+  text-decoration: underline;
 }

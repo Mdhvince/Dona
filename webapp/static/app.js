@@ -3,7 +3,7 @@ const questionInput = document.getElementById("question");
 const button = document.getElementById("ask-button");
 const spinner = document.getElementById("spinner");
 const answerEl = document.getElementById("answer");
-const sourceContent = document.getElementById("source-content");
+const answerSources = document.getElementById("answer-sources");
 const reindexButton = document.getElementById("reindex-button");
 const reindexStatus = document.getElementById("reindex-status");
 const reindexWarnings = document.getElementById("reindex-warnings");
@@ -12,49 +12,29 @@ function resetInteraction() {
   answerEl.hidden = true;
   answerEl.textContent = "";
   answerEl.classList.remove("error");
-  sourceContent.textContent = "-";
-  sourceContent.classList.add("empty");
+  answerSources.hidden = true;
+  answerSources.textContent = "";
 }
 
 function showSources(sources) {
-  sourceContent.textContent = "";
+  answerSources.textContent = "";
   if (!sources || sources.length === 0) {
-    sourceContent.textContent = "Aucune source citée.";
+    answerSources.hidden = true;
     return;
   }
-  sourceContent.classList.remove("empty");
-  if (sources.length > 1) {
-    sourceContent.classList.add("multiple");
-  } else {
-    sourceContent.classList.remove("multiple");
-  }
-
-  for (const source of sources) {
-    // #page=N opens the browser PDF viewer directly on the cited page
-    const url = source.url + (source.page !== null ? `#page=${source.page}` : "");
-
-    // Non-interactive preview (pointer-events disabled in CSS) wrapped in a
-    // link: clicking anywhere opens the document in a new tab
+  answerSources.append("Sources : ");
+  sources.forEach((source, i) => {
+    if (i > 0) answerSources.append(" · ");
     const link = document.createElement("a");
-    link.className = "preview";
-    link.href = url;
+    // #page=N opens the browser PDF viewer directly on the cited page
+    link.href = source.url + (source.page !== null ? `#page=${source.page}` : "");
     link.target = "_blank";
-    link.title = "Ouvrir le document";
-
-    const frame = document.createElement("iframe");
-    frame.src = source.url + (source.page !== null
-      ? `#page=${source.page}&toolbar=0&navpanes=0`
-      : "#toolbar=0&navpanes=0");
-    link.appendChild(frame);
-    sourceContent.appendChild(link);
-
-    const caption = document.createElement("span");
-    caption.className = "caption";
-    caption.textContent = source.page !== null
-      ? `${source.name} - page ${source.page}`
+    link.textContent = source.page !== null
+      ? `${source.name}, p.${source.page}`
       : source.name;
-    sourceContent.appendChild(caption);
-  }
+    answerSources.appendChild(link);
+  });
+  answerSources.hidden = false;
 }
 
 form.addEventListener("submit", async (event) => {

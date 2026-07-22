@@ -1,11 +1,10 @@
 from pathlib import Path
 
-from langchain_classic.retrievers import MultiQueryRetriever
 from langchain_chroma import Chroma
 
 from config import load_config, llm_client, embedding_client
 from response_helper import answer
-from retrieval import HybridRetriever, MULTI_QUERY_PROMPT
+from retrieval import HybridRetriever
 
 PERSIST_DIR = str(Path(__file__).parent.parent / "vectordb")
 
@@ -21,11 +20,7 @@ if __name__ == "__main__":
                       embedding_function=embedding_client(config))
 
     # Hybrid search: semantic (Chroma) + keyword (BM25), fused with Reciprocal Rank Fusion.
-    hybrid_retriever = HybridRetriever.from_vectordb(vectordb, **config["retriever"])
-
-    # MultiQueryRetriever generates multiple versions of the query to improve retrieval performance.
-    retriever = MultiQueryRetriever.from_llm(retriever=hybrid_retriever, llm=chat_llm,
-                                             prompt=MULTI_QUERY_PROMPT, include_original=True)
+    retriever = HybridRetriever.from_vectordb(vectordb, **config["retriever"])
 
     ans = answer("Quel est le numero de siret de Myelink?", retriever, chat_llm)
     response = ans.response

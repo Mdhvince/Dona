@@ -12,9 +12,9 @@ LangChain (orchestration), Flask (interface).
    txt, md)                                            Markdown
 
                     REQUETE (webapp Flask)
-  question ──> MultiQuery ──> recherche hybride ──> LLM (gpt-oss:20b) ──> réponse
-               (variantes)    BM25 + sémantique      sortie structurée     + source
-                              fusion RRF             (Pydantic)
+  question ──> recherche hybride ──> LLM (gpt-oss:20b) ──> réponse
+               BM25 + sémantique     sortie structurée     + sources
+               fusion RRF            (Pydantic)
 ```
 
 ## Ingestion (`src/ingest.py`)
@@ -102,12 +102,14 @@ Recherche hybride fusionnée par Reciprocal Rank Fusion :
   que "numero" matche "numéro".
 - **RRF** : score 1/(rrf_k + rang) additionné entre les deux classements.
 
-Par-dessus, `MultiQueryRetriever` (LangChain) génère des variantes de la
-question avec le LLM pour élargir le rappel - avec un prompt custom en
-français (`retrieval.MULTI_QUERY_PROMPT`), le prompt anglais par défaut
-pouvant produire des variantes anglaises sur un corpus français. Paramètres
-dans `config.toml [retriever]` (k=6 après fusion). BM25 est un index en
-mémoire reconstruit au démarrage de la webapp et après chaque ré-indexation.
+Le MultiQueryRetriever (variantes de la question générées par le LLM) a été
+retiré en préparation de la conversion du RAG en outil d'agent LangGraph :
+la reformulation des requêtes reviendra à l'agent appelant, qui la fait
+mieux (requêtes successives informées par les résultats précédents) et sans
+appel LLM caché dans le retrieval. Le pipeline hybride reste une fonction
+déterministe. Paramètres dans `config.toml [retriever]` (k=6 après fusion).
+BM25 est un index en mémoire reconstruit au démarrage de la webapp et après
+chaque ré-indexation.
 
 ## Génération (`src/response_helper.py`)
 
@@ -138,12 +140,13 @@ réponse factuelle non sourcée est ainsi détectable en code.
 
 ## Webapp (`webapp/`, convention flask.md)
 
-- `GET /` : page unique (question, réponse, panneau Sources).
+- `GET /` : page unique (question, réponse, sources).
 - `POST /ask` : question -> réponse HTML (Markdown converti et assaini côté
-  serveur) + sources [{name, page, url}], un aperçu par source cité.
+  serveur) + sources [{name, page, url}].
 - `GET /source?path=...` : sert le document (les liens file:// sont bloqués
-  en HTTP), restreint aux racines indexées. Le panneau Sources affiche un
-  aperçu du PDF (iframe, ouvert à la page citée) cliquable.
+  en HTTP), restreint aux racines indexées. Les sources s'affichent en
+  liste compacte muted sous la réponse ("Sources : avis_2024.pdf, p.2 ...") ;
+  un clic ouvre le document dans un nouvel onglet, à la page citée.
 - `POST /reindex` : ingestion incrémentale en thread d'arrière-plan, un seul
   run à la fois (bouton "Re-indexer"). La reconstruction complète est
   volontairement absente de l'interface : c'est un batch de plusieurs heures,
