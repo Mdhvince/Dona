@@ -1,0 +1,20 @@
+# Configuration de l'assistant — les clés API restent dans .env
+
+[llm]
+model = "gpt-oss:20b"
+base_url = "http://localhost:11434/v1"  # API OpenAI-compatible d'Ollama
+
+[embedding]
+model = "openai/text-embedding-3-large"
+base_url = "https://openrouter.ai/api/v1"
+
+[retriever]
+k1 = 1.5      # BM25 : saturation de la fréquence des termes [1.2 - 2.0]
+b = 0.75      # BM25 : normalisation par la longueur du document [0.0 - 1.0]
+k = 4         # nombre de documents retournés après fusion
+fetch_k = 10  # profondeur de chaque classement avant fusion RRF
+rrf_k = 60    # constante de lissage du Reciprocal Rank Fusion
+
+[ingestion]
+chunk_size = 500
+chunk_overlap = 20
