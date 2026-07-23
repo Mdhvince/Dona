@@ -176,7 +176,7 @@ Pas d'historique : chaque question efface l'interaction précédente.
 ## Commandes
 
 ```bash
-uv run python src/ingest.py          # ingestion incrémentale (CLI)
+uv run python -m src.ingest          # ingestion incrémentale (CLI)
 uv run python run.py                 # webapp sur http://127.0.0.1:5000
 uv run pytest                        # tests unitaires (tests/)
 ```
@@ -187,7 +187,7 @@ après un changement de modèle d'embedding ou de prompt de transcription,
 en veille pendant le batch ; Ollama doit être démarré :
 
 ```bash
-caffeinate -i uv run python src/ingest.py --full
+caffeinate -i uv run python -m src.ingest --full
 ```
 
 ## Limites connues et pistes

@@ -1,22 +1,17 @@
-import sys
 import threading
 from pathlib import Path
 
 import nh3
 from flask import Flask, abort, jsonify, render_template, request, send_file, url_for
+from langchain_chroma import Chroma
 from markdown import markdown
 
-# Modules in src/ use flat imports (from config import ...)
+from src.config import load_config, llm_client, rewriter_client, embedding_client, vlm_client
+from src.ingest import DOCS_DIRS, sync
+from src.response_helper import answer
+from src.retrieval import HybridRetriever
+
 ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(ROOT / "src"))
-
-from langchain_chroma import Chroma
-
-from config import load_config, llm_client, rewriter_client, embedding_client, vlm_client
-from ingest import DOCS_DIRS, sync
-from response_helper import answer
-from retrieval import HybridRetriever
-
 PERSIST_DIR = str(ROOT / "vectordb")
 
 app = Flask(__name__)

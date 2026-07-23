@@ -9,8 +9,8 @@ from langchain_core.documents import Document
 from langchain_core.messages import HumanMessage
 from pypdf import PdfReader
 
-from config import load_config, embedding_client, vlm_client
-from document_processing import markdown_splitter
+from src.config import load_config, embedding_client, vlm_client
+from src.document_processing import markdown_splitter
 
 HERE = Path(__file__).parent
 PERSIST_DIR = str(HERE.parent / "vectordb")
