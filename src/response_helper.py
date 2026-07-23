@@ -22,6 +22,7 @@ class Answer(LLMAnswer):
     # Fields filled by code, never by the LLM
     source_readable: str | None = None  # Markdown links, for the terminal
     sources_info: list = Field(default_factory=list)  # [{"path", "page"}], for other interfaces (Flask...)
+    rewritten: str | None = None        # question actually used for retrieval
 
 
 RAG_PROMPT = ChatPromptTemplate.from_messages([
@@ -60,6 +61,38 @@ RAG_PROMPT = ChatPromptTemplate.from_messages([
        "l'information est absente."),
       ("human", "<contexte>\n{context}\n</contexte>\n\nQuestion : {question}"),
   ])
+
+
+REWRITE_PROMPT = ChatPromptTemplate.from_messages([
+      ("system",
+       "Tu reformules des questions pour une recherche documentaire. "
+       "L'utilisateur est Medhy Vinceslas, freelance Data Scientist ; son "
+       "entreprise s'appelle Myelink.\n"
+       "Règles :\n"
+       "1. Si la question utilise un déterminant possessif (mon, ma, mes) "
+       "sans nommer de personne, remplace-le par Medhy Vinceslas ou Myelink "
+       "selon le sens ; si elle nomme explicitement une autre personne "
+       "(ma mère, un client...), garde cette personne.\n"
+       "2. Corrige l'orthographe et lève les ambiguïtés évidentes, sans "
+       "changer le sens.\n"
+       "3. Sors uniquement la question reformulée, sans commentaire ni "
+       "explication."),
+      ("human", "{question}"),
+  ])
+
+
+def rewrite_query(question, llm):
+    """Resolve possessives and ambiguity before retrieval: the retriever
+    (BM25 + embeddings) has no idea who "mon" refers to. The rewritten
+    question is used for retrieval only; the original is kept for the
+    generation prompt. Any failure falls back to the raw question: a
+    missed rewrite is graceful, a broken one is not."""
+    try:
+        raw = (REWRITE_PROMPT | llm).invoke({"question": question}).content
+    except Exception:
+        return question
+    line = next((l.strip().strip('"') for l in raw.splitlines() if l.strip()), "")
+    return line or question
 
 
 def format_context(docs):
@@ -105,8 +138,12 @@ def source_links(sources):
     return " ; ".join(links)
 
 
-def answer(question, retriever, llm_client):
-    docs = retriever.invoke(question)
+def answer(question, retriever, llm_client, rewriter_llm=None):
+    rewritten = rewrite_query(question, rewriter_llm) if rewriter_llm else question
+    # Both phrasings are retrieved and fused: the rewritten one resolves the
+    # persona, the original one covers whatever the rewrite may have lost.
+    queries = [question] + ([rewritten] if rewritten != question else [])
+    docs = retriever.search(queries)
     chain = RAG_PROMPT | llm_client.with_structured_output(LLMAnswer)
     raw = chain.invoke({"context": format_context(docs),
                         "question": question,
@@ -114,4 +151,5 @@ def answer(question, retriever, llm_client):
     cited = cited_sources(docs, raw.sources)
     return Answer(**raw.model_dump(),
                   source_readable=source_links(cited),
-                  sources_info=[{"path": path, "page": page} for path, page in cited])
+                  sources_info=[{"path": path, "page": page} for path, page in cited],
+                  rewritten=rewritten)

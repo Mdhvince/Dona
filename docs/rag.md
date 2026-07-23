@@ -111,6 +111,21 @@ déterministe. Paramètres dans `config.toml [retriever]` (k=6 après fusion).
 BM25 est un index en mémoire reconstruit au démarrage de la webapp et après
 chaque ré-indexation.
 
+En attendant l'agent, une étape de réécriture explicite (`rewrite_query`,
+LLM dédié `[rewriter]` : température 0, sortie courte) tourne avant le
+retrieval et résout les possessifs ("mon" -> Medhy Vinceslas / Myelink,
+sauf si une autre personne est nommée) et les ambiguïtés. Sans elle, ni le
+BM25 (les stopwords suppriment "mon") ni les embeddings ne savent de qui
+parle la question : "mon passeport" ramenait le passeport d'un tiers. Le
+retrieval fusionne les deux phrasings, originale et réécrite (RRF sur 4
+classements : 2 requêtes x sémantique + BM25) : la réécrite résout la
+personne, l'originale couvre ce que la réécriture aurait pu perdre. La
+question originale reste celle du prompt de génération, et toute erreur de
+réécriture retombe sur la question brute. Cette étape est volontairement
+hors du retriever (qui reste déterministe) : elle deviendra un noeud de
+l'agent LangGraph, et la requête réécrite est aussi celle qui alimentera le
+futur reranker.
+
 ## Génération (`src/response_helper.py`)
 
 Sortie structurée Pydantic via `with_structured_output` :

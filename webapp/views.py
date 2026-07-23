@@ -12,7 +12,7 @@ sys.path.insert(0, str(ROOT / "src"))
 
 from langchain_chroma import Chroma
 
-from config import load_config, llm_client, embedding_client, vlm_client
+from config import load_config, llm_client, rewriter_client, embedding_client, vlm_client
 from ingest import DOCS_DIRS, sync
 from response_helper import answer
 from retrieval import HybridRetriever
@@ -24,6 +24,7 @@ app = Flask(__name__)
 # RAG pipeline built once at startup, shared across requests
 config = load_config()
 chat_llm = llm_client(config)
+rewriter_llm = rewriter_client(config)
 vectordb = Chroma(persist_directory=PERSIST_DIR,
                   embedding_function=embedding_client(config))
 
@@ -89,13 +90,14 @@ def ask():
     if retriever is None:
         return jsonify(error="Index vide : lance une ré-indexation."), 503
     try:
-        result = answer(question, retriever, chat_llm)
+        result = answer(question, retriever, chat_llm, rewriter_llm)
     except Exception:
         app.logger.exception("answer() failed")
         return jsonify(error="Le modèle n'a pas réussi à produire une réponse, réessaie."), 500
     # nh3 strips raw HTML that python-markdown lets through (XSS via corpus)
     return jsonify(response=nh3.clean(markdown(result.response, extensions=["tables"])),
-                   sources=sources_payload(result))
+                   sources=sources_payload(result),
+                   rewritten=result.rewritten)
 
 
 @app.route("/source")

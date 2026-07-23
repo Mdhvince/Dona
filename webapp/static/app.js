@@ -2,6 +2,7 @@ const form = document.getElementById("ask-form");
 const questionInput = document.getElementById("question");
 const button = document.getElementById("ask-button");
 const spinner = document.getElementById("spinner");
+const rewrittenEl = document.getElementById("rewritten");
 const answerEl = document.getElementById("answer");
 const answerSources = document.getElementById("answer-sources");
 const reindexButton = document.getElementById("reindex-button");
@@ -14,6 +15,15 @@ function resetInteraction() {
   answerEl.classList.remove("error");
   answerSources.hidden = true;
   answerSources.textContent = "";
+  rewrittenEl.hidden = true;
+  rewrittenEl.textContent = "";
+}
+
+function showRewritten(rewritten, question) {
+  // Only worth showing when the rewriter actually changed the question
+  if (!rewritten || rewritten === question) return;
+  rewrittenEl.textContent = `Recherche : ${rewritten}`;
+  rewrittenEl.hidden = false;
 }
 
 function showSources(sources) {
@@ -57,6 +67,7 @@ form.addEventListener("submit", async (event) => {
 
     answerEl.innerHTML = data.response;
     answerEl.hidden = false;
+    showRewritten(data.rewritten, question);
     showSources(data.sources);
   } catch (err) {
     answerEl.textContent = `Une erreur est survenue : ${err.message}`;

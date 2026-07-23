@@ -11,12 +11,22 @@ model = "qwen3-embedding:8b"
 base_url = "http://localhost:11434/v1"  # Ollama's OpenAI-compatible API - fully local
 
 [vlm]
-# Vision model: transcribes PDF pages and images to Markdown at ingestion time.
+# Vision model: transcribes PDF pages and images at ingestion time.
 # reasoning = false: transcription does not need reasoning (~12x faster).
 model = "qwen3.5:9b"
 base_url = "http://localhost:11434"
 temperature = 0.0
 reasoning = false
+
+[rewriter]
+# Query rewriting before retrieval: resolves possessives ("mon" -> Medhy
+# Vinceslas / Myelink) and ambiguity, so the retriever sees an explicit
+# question. Deterministic, short output. Same model as [llm] for now;
+# a 3-4B model is enough here and would cut latency.
+model = "gpt-oss:20b"
+base_url = "http://localhost:11434/v1"
+temperature = 0.0
+max_tokens = 1000
 
 [retriever]
 k1 = 1.5      # BM25: term frequency saturation [1.2 - 2.0]

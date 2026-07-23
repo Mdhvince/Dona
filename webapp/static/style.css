@@ -110,6 +110,13 @@ h1 {
   cursor: default;
 }
 
+/* --- Rewritten query (muted, under the input) --- */
+.muted {
+  margin-top: 0.6rem;
+  font-size: 0.8rem;
+  color: #767676;
+}
+
 /* --- Spinner --- */
 .spinner {
   width: 22px;

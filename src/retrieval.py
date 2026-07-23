@@ -38,7 +38,8 @@ class HybridRetriever(BaseRetriever):
     Hybrid search: semantic (Chroma) + keyword (BM25), fused with Reciprocal
     Rank Fusion. Each document gets a 1/(rrf_k + rank) score in each ranking
     and the scores add up: a document ranked well by both searches rises to
-    the top.
+    the top. search() accepts several queries (original + rewritten): every
+    (query, method) pair is fused as its own ranking.
 
     BM25 parameters:
     - k1: term frequency saturation (typically 1.2 to 2.0)
@@ -69,16 +70,24 @@ class HybridRetriever(BaseRetriever):
         ranked = sorted(range(len(scores)), key=lambda i: scores[i], reverse=True)
         return [self.documents[i] for i in ranked[:self.fetch_k] if scores[i] > 0]
 
-    def _get_relevant_documents(self, query, *, run_manager=None):
-        rankings = [
-            self.vectordb.similarity_search(query, k=self.fetch_k),
-            self._keyword_search(query),
-        ]
+    def search(self, queries):
+        """RRF over the semantic and keyword rankings of every query: each
+        (query, method) pair is one ranking, so several phrasings of the same
+        need (original + rewritten) reinforce the documents they both rank
+        well instead of competing."""
         scores, docs_by_key = {}, {}
-        for ranking in rankings:
-            for rank, doc in enumerate(ranking):
-                key = (doc.metadata.get("source"), doc.metadata.get("page"), doc.page_content)
-                docs_by_key[key] = doc
-                scores[key] = scores.get(key, 0.0) + 1.0 / (self.rrf_k + rank + 1)
+        for query in queries:
+            rankings = [
+                self.vectordb.similarity_search(query, k=self.fetch_k),
+                self._keyword_search(query),
+            ]
+            for ranking in rankings:
+                for rank, doc in enumerate(ranking):
+                    key = (doc.metadata.get("source"), doc.metadata.get("page"), doc.page_content)
+                    docs_by_key[key] = doc
+                    scores[key] = scores.get(key, 0.0) + 1.0 / (self.rrf_k + rank + 1)
         fused = sorted(scores, key=scores.get, reverse=True)
         return [docs_by_key[key] for key in fused[:self.k]]
+
+    def _get_relevant_documents(self, query, *, run_manager=None):
+        return self.search([query])
