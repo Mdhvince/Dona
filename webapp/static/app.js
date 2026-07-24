@@ -19,14 +19,13 @@ function resetInteraction() {
   rewrittenEl.textContent = "";
 }
 
-function showRewritten(rewritten, question) {
-  // Only worth showing when the rewriter actually changed the question
-  if (!rewritten || rewritten === question) return;
-  rewrittenEl.textContent = `Recherche : ${rewritten}`;
+function showQueries(queries) {
+  if (!queries || queries.length === 0) return;
+  rewrittenEl.textContent = `Recherche : ${queries.join(" · ")}`;
   rewrittenEl.hidden = false;
 }
 
-function showSources(sources) {
+function showSources(sources, consulted) {
   answerSources.textContent = "";
   if (!sources || sources.length === 0) {
     answerSources.hidden = true;
@@ -44,6 +43,9 @@ function showSources(sources) {
       : source.name;
     answerSources.appendChild(link);
   });
+  if (consulted > sources.length) {
+    answerSources.append(` (${consulted} documents consultés)`);
+  }
   answerSources.hidden = false;
 }
 
@@ -67,8 +69,8 @@ form.addEventListener("submit", async (event) => {
 
     answerEl.innerHTML = data.response;
     answerEl.hidden = false;
-    showRewritten(data.rewritten, question);
-    showSources(data.sources);
+    showQueries(data.queries);
+    showSources(data.sources, data.consulted);
   } catch (err) {
     answerEl.textContent = `Une erreur est survenue : ${err.message}`;
     answerEl.classList.add("error");

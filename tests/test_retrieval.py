@@ -1,4 +1,4 @@
-from retrieval import tokenize
+from src.retrieval import tokenize
 
 
 def test_tokenize_is_accent_insensitive():

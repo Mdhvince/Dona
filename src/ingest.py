@@ -11,6 +11,7 @@ from pypdf import PdfReader
 
 from src.config import load_config, embedding_client, vlm_client
 from src.document_processing import markdown_splitter
+from src.prompt import IMAGE_TRANSCRIPTION_PROMPT, PDF_TRANSCRIPTION_PROMPT
 
 HERE = Path(__file__).parent
 PERSIST_DIR = str(HERE.parent / "vectordb")
@@ -24,20 +25,6 @@ DOCS_DIRS = [
 TEXT_SUFFIXES = {".txt", ".md"}
 IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg"}
 RENDER_DPI = 150
-
-# Prompts are in French on purpose: the corpus is French and the transcription
-# must stay as close as possible to the original wording.
-PDF_PROMPT = (
-    "Transcris intégralement cette page de document en Markdown, avec des "
-    "titres pour les sections. Associe chaque libellé à sa valeur sur la même "
-    "ligne (utilise des tables Markdown pour les tableaux). N'invente aucune "
-    "valeur : si une valeur est illisible, écris [illisible]. Ne commente pas, "
-    "transcris uniquement.")
-
-IMAGE_PROMPT = (
-    "Transcris intégralement le texte visible de cette image en Markdown, puis "
-    "décris en une ou deux phrases ce que montre l'image. N'invente rien.")
-
 
 def _transcribe(vlm, image_bytes, mime, prompt):
     b64 = base64.b64encode(image_bytes).decode()
@@ -107,7 +94,7 @@ def load_pdf(path, vlm):
         # flush: page-by-page progress must show up even when stdout is piped
         print(f"    {path.name} : page {i + 1}/{len(pdf)}...", flush=True)
         documents.append(
-            Document(page_content=_transcribe(vlm, _render_page(pdf[i]), "image/png", PDF_PROMPT),
+            Document(page_content=_transcribe(vlm, _render_page(pdf[i]), "image/png", PDF_TRANSCRIPTION_PROMPT),
                      metadata={"source": str(path), "page": i + 1}))
     warnings = validate_transcription(path, documents)
     for warning in warnings:
@@ -117,7 +104,7 @@ def load_pdf(path, vlm):
 
 def load_image(path, vlm):
     mime = "image/png" if path.suffix.lower() == ".png" else "image/jpeg"
-    return [Document(page_content=_transcribe(vlm, path.read_bytes(), mime, IMAGE_PROMPT),
+    return [Document(page_content=_transcribe(vlm, path.read_bytes(), mime, IMAGE_TRANSCRIPTION_PROMPT),
                      metadata={"source": str(path)})]
 
 

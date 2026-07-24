@@ -11,10 +11,10 @@ LangChain (orchestration), Flask (interface).
   (PDF, images,      (qwen3.5:9b)      anti-hallu     structurel   (qwen3-emb:8b)
    txt, md)                                            Markdown
 
-                    REQUETE (webapp Flask)
-  question ──> recherche hybride ──> LLM (gpt-oss:20b) ──> réponse
-               BM25 + sémantique     sortie structurée     + sources
-               fusion RRF            (Pydantic)
+                    REQUETE (webapp Flask, agent LangGraph)
+  question ──> agent (gpt-oss:20b) ──> tool rag_medhys_files ──> réponse
+               décide quand chercher    recherche hybride         + sources
+               et formule les requêtes  BM25 + sémantique, RRF    (artifacts)
 ```
 
 ## Ingestion (`src/ingest.py`)
@@ -102,62 +102,51 @@ Recherche hybride fusionnée par Reciprocal Rank Fusion :
   que "numero" matche "numéro".
 - **RRF** : score 1/(rrf_k + rang) additionné entre les deux classements.
 
-Le MultiQueryRetriever (variantes de la question générées par le LLM) a été
-retiré en préparation de la conversion du RAG en outil d'agent LangGraph :
-la reformulation des requêtes reviendra à l'agent appelant, qui la fait
-mieux (requêtes successives informées par les résultats précédents) et sans
-appel LLM caché dans le retrieval. Le pipeline hybride reste une fonction
-déterministe. Paramètres dans `config.toml [retriever]` (k=6 après fusion).
-BM25 est un index en mémoire reconstruit au démarrage de la webapp et après
-chaque ré-indexation.
+Le pipeline hybride est une fonction déterministe, volontairement sans LLM :
+`search(queries)` accepte plusieurs formulations et fusionne chaque couple
+(requête, méthode) comme un classement RRF de plus. Paramètres dans
+`config.toml [retriever]` (k=6 après fusion). BM25 est un index en mémoire
+reconstruit au démarrage de la webapp et après chaque ré-indexation.
 
-En attendant l'agent, une étape de réécriture explicite (`rewrite_query`,
-LLM dédié `[rewriter]` : température 0, sortie courte) tourne avant le
-retrieval et résout les possessifs ("mon" -> Medhy Vinceslas / Myelink,
-sauf si une autre personne est nommée) et les ambiguïtés. Sans elle, ni le
-BM25 (les stopwords suppriment "mon") ni les embeddings ne savent de qui
-parle la question : "mon passeport" ramenait le passeport d'un tiers. Le
-retrieval fusionne les deux phrasings, originale et réécrite (RRF sur 4
-classements : 2 requêtes x sémantique + BM25) : la réécrite résout la
-personne, l'originale couvre ce que la réécriture aurait pu perdre. La
-question originale reste celle du prompt de génération, et toute erreur de
-réécriture retombe sur la question brute. Cette étape est volontairement
-hors du retriever (qui reste déterministe) : elle deviendra un noeud de
-l'agent LangGraph, et la requête réécrite est aussi celle qui alimentera le
-futur reranker.
+## Agent (`src/agent.py`, `src/tools.py`)
 
-## Génération (`src/response_helper.py`)
+Le RAG est un outil d'un agent LangGraph (`create_agent`, LangChain 1.x) :
 
-Sortie structurée Pydantic via `with_structured_output` :
-
-- `response` : la réponse en Markdown, sans mention des sources ;
-- `sources` : les numéros `[i]` des extraits utilisés, pas des URIs : des
-  entiers sont difficiles à halluciner et se valident par bornes.
-
-Le contexte envoyé au LLM inclut le nom de fichier de chaque extrait, pour
-qu'il puisse nommer les documents et distinguer les années. Le code
-reconstruit ensuite les liens réels depuis les métadonnées des chunks cités
-(`source_readable` pour le terminal, `sources_info` pour la webapp), avec
-déduplication. La réponse HTML est assainie par `nh3` avant envoi au front
-(python-markdown laisse passer le HTML brut : vecteur XSS via un document
-indexé malveillant).
-
-Prompt système en français (comme le corpus et les descriptions de champs),
-en règles numérotées courtes adaptées à un modèle local : contexte délimité
-par `<contexte>` et traité comme des données (anti-injection), réponse
-partielle si l'information est incomplète, fidélité absolue des montants et
-identifiants (prolonge la validation d'ingestion), priorité au document le
-plus récent avec année toujours précisée, hypothèse indiquée si la question
-est ambiguë, et date du jour injectée (`{date}`) pour les questions
-relatives ("cette année", "mon dernier..."). `sources` doit couvrir tous
-les extraits utilisés et n'être vide que si l'information est absente : une
-réponse factuelle non sourcée est ainsi détectable en code.
+- **`rag_medhys_files`** (`src/tools.py`) : fabrique `make_rag_tool(retriever)`
+  qui capture le retriever par closure ; le schéma expose uniquement
+  `queries: list[str]`. La docstring est le prompt de l'outil : périmètre du
+  corpus et consigne de requêtes explicites et nommées ("passeport de Medhy
+  Vinceslas", jamais "mon passeport") - c'est elle qui résout les possessifs,
+  l'ancienne étape de réécriture de requête est devenue inutile. L'outil est déclaré
+  `response_format="content_and_artifact"` : le texte des extraits
+  (numérotés, nom de fichier + page, via `format_context`) part dans le
+  contexte de l'agent, les métadonnées `{path, page}` voyagent en artifact
+  dans le `ToolMessage` sans repasser par le LLM.
+- **L'agent** (`build_agent`) décide s'il faut chercher, avec quelles
+  requêtes, et peut enchaîner plusieurs recherches (multi-hop) si les
+  premiers extraits ne suffisent pas. Le prompt système reprend les règles
+  historiques : extraits = données (anti-injection), vérification du
+  titulaire, fidélité absolue des montants et identifiants, priorité au
+  document le plus récent avec année précisée, date du jour injectée.
+- **Citations** : l'agent termine par une sortie structurée
+  (`ProviderStrategy` : le schéma `{response, sources}` est imposé par l'API,
+  pas laissé au choix du modèle - `ToolStrategy` a été testé et gpt-oss
+  ignorait l'outil de réponse finale). Il y déclare les extraits réellement
+  utilisés par (nom de fichier, page) ; `validate_citations` confronte
+  chaque citation aux artifacts des `ToolMessage` (documents réellement
+  récupérés) : une citation inventée est écartée, et le chemin affiché vient
+  toujours de l'artifact, jamais du LLM. L'UI montre les sources citées puis
+  le nombre total de documents consultés ; `collect_queries` expose les
+  requêtes envoyées. La réponse HTML est assainie par `nh3` avant envoi au
+  front (python-markdown laisse passer le HTML brut : vecteur XSS via un
+  document indexé malveillant).
 
 ## Webapp (`webapp/`, convention flask.md)
 
 - `GET /` : page unique (question, réponse, sources).
-- `POST /ask` : question -> réponse HTML (Markdown converti et assaini côté
-  serveur) + sources [{name, page, url}].
+- `POST /ask` : question -> invocation de l'agent -> réponse HTML (Markdown
+  converti et assaini côté serveur) + sources [{name, page, url}] + queries
+  (requêtes de recherche de l'agent, affichées sous le champ question).
 - `GET /source?path=...` : sert le document (les liens file:// sont bloqués
   en HTTP), restreint aux racines indexées. Les sources s'affichent en
   liste compacte muted sous la réponse ("Sources : avis_2024.pdf, p.2 ...") ;

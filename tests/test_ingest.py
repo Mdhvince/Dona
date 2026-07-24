@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from ingest import find_invented_numbers, sync
+from src.ingest import find_invented_numbers, sync
 
 
 class FakeVectordb:

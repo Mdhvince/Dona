@@ -18,12 +18,6 @@ def llm_client(config, api_key="ollama"):
     return ChatOpenAI(api_key=api_key, **config["llm"])
 
 
-def rewriter_client(config, api_key="ollama"):
-    """LLM for query rewriting: deterministic one-liner output, used only
-    to prepare the retrieval query, never shown to the user."""
-    return ChatOpenAI(api_key=api_key, **config["rewriter"])
-
-
 def vlm_client(config):
     """Vision model, through Ollama's native API which exposes reasoning
     control: transcribes PDF pages and images at ingestion time."""

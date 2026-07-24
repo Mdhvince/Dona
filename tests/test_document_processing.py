@@ -1,6 +1,6 @@
 from langchain_core.documents import Document
 
-from document_processing import markdown_splitter
+from src.document_processing import markdown_splitter
 
 
 def split(text, chunk_size=1000, chunk_overlap=0, metadata=None):
