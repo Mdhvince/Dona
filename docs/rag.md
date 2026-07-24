@@ -124,10 +124,39 @@ Le RAG est un outil d'un agent LangGraph (`create_agent`, LangChain 1.x) :
   dans le `ToolMessage` sans repasser par le LLM.
 - **L'agent** (`build_agent`) décide s'il faut chercher, avec quelles
   requêtes, et peut enchaîner plusieurs recherches (multi-hop) si les
-  premiers extraits ne suffisent pas. Le prompt système reprend les règles
-  historiques : extraits = données (anti-injection), vérification du
-  titulaire, fidélité absolue des montants et identifiants, priorité au
-  document le plus récent avec année précisée, date du jour injectée.
+  premiers extraits ne suffisent pas. Politique "chercher d'abord" : toute
+  question factuelle passe par le RAG, et si rien n'est trouvé l'assistant
+  le dit au lieu de répondre de sa connaissance générale. Le prompt système
+  reprend les règles historiques : extraits = données (anti-injection),
+  vérification du titulaire, fidélité absolue des montants et identifiants,
+  priorité au document le plus récent avec année précisée, date du jour
+  injectée.
+- **Outils MCP** (`tools.load_mcp_tools`) : les serveurs déclarés en
+  `[[mcp]]` dans config.toml (stdio) sont connectés au démarrage via
+  langchain-mcp-adapters et leurs outils rejoignent l'agent, renommés
+  `<serveur>_<outil>` - le même serveur peut tourner une fois par compte
+  (calendar_pro, calendar_perso, chacun son token OAuth). Whitelist
+  d'outils en lecture seule par serveur (un nom absent du serveur déclenche
+  un avertissement au démarrage) ; un serveur injoignable est ignoré avec
+  un avertissement, l'agent continue sans lui. Les outils MCP étant async,
+  ils sont enveloppés en outils synchrones (une boucle asyncio par appel)
+  pour rester compatibles avec la stack Flask/agent synchrone. `fixed_args`
+  épingle par instance les paramètres que le modèle ne doit pas contrôler :
+  le compte d'un serveur multi-comptes, typiquement - la valeur configurée
+  écrase toujours celle du modèle (vérifié en réel : le modèle invente des
+  noms de compte). Connectés : calendar_pro / calendar_perso (Google
+  Calendar, lecture seule, OAuth local dans ~/.config/google-calendar-mcp) ;
+  les actions d'écriture (create/update/delete-event) sont volontairement
+  hors whitelist en attendant le human-in-the-loop.
+- **Conversation** : l'agent reçoit un checkpointer `SqliteSaver`
+  (`conversations.db` à la racine, gardé hors de l'agent pour survivre aux
+  ré-indexations ; les conversations survivent aussi aux redémarrages du
+  serveur) et chaque requête porte un `thread_id` : même thread = même
+  conversation, avec résolution des références ("et son adresse ?").
+  `current_turn()` isole les messages du tour courant, car le checkpointer
+  renvoie tout l'historique (le fil d'activité et les compteurs ne
+  concernent que le tour en cours ; les citations restent validées contre
+  tout le thread).
 - **Citations** : l'agent termine par une sortie structurée
   (`ProviderStrategy` : le schéma `{response, sources}` est imposé par l'API,
   pas laissé au choix du modèle - `ToolStrategy` a été testé et gpt-oss
@@ -144,7 +173,10 @@ Le RAG est un outil d'un agent LangGraph (`create_agent`, LangChain 1.x) :
 ## Webapp (`webapp/`, convention flask.md)
 
 - `GET /` : page unique (question, réponse, sources).
-- `POST /ask` : flux NDJSON (`agent.stream(stream_mode="values")`). Pendant
+- `POST /ask` (`{question, thread_id}`) : flux NDJSON
+  (`agent.stream(stream_mode="values")`). Le `thread_id` vit dans le
+  localStorage du navigateur ; le bouton "Nouvelle conversation" en génère
+  un neuf et vide l'écran. Pendant
   l'attente, une ligne `{tool, args}` par appel d'outil de l'agent (affichée
   "[Calling rag_medhys_files]: ..." à droite du spinner) et une ligne
   `{retrieved}` quand des extraits arrivent ; puis une ligne finale avec la

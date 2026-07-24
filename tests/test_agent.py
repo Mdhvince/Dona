@@ -1,6 +1,7 @@
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
-from src.agent import CitedSource, collect_queries, collect_sources, validate_citations
+from src.agent import (CitedSource, collect_queries, collect_sources,
+                       current_turn, validate_citations)
 
 A24 = {"path": "/tmp/avis_2024.pdf", "page": "2"}
 RIB = {"path": "/tmp/rib.pdf", "page": None}
@@ -52,3 +53,14 @@ def test_validate_citations_drops_unknown_documents():
 def test_validate_citations_handles_pageless_and_dedup():
     cited = [CitedSource(file="rib.pdf"), CitedSource(file="rib.pdf")]
     assert validate_citations(cited, [A24, RIB]) == [RIB]
+
+
+def test_current_turn_slices_from_last_human_message():
+    history = [HumanMessage(content="q1"), AIMessage(content="r1"),
+               HumanMessage(content="q2"), tool_message([A24]), AIMessage(content="r2")]
+    assert current_turn(history) == history[2:]
+
+
+def test_current_turn_without_human_message():
+    messages = [AIMessage(content="r")]
+    assert current_turn(messages) == messages

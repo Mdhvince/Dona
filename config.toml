@@ -30,3 +30,31 @@ rrf_k = 60    # Reciprocal Rank Fusion smoothing constant
 # header-based structural split - 1000 to avoid cutting tables in half.
 chunk_size = 1000
 chunk_overlap = 100
+
+# MCP servers exposed to the agent as tools, one block per server. The same
+# server runs once per account (GOOGLE_ACCOUNT_MODE selects the OAuth token,
+# created via: npx @cocal/google-calendar-mcp auth <account>): tools get
+# renamed <name>_<tool>. "tools" is a read-only whitelist: anything not
+# listed is not given to the agent.
+
+[[mcp]]
+name = "calendar_pro"
+command = "npx"
+args = ["-y", "@cocal/google-calendar-mcp"]
+tools = ["list-calendars", "list-events", "search-events", "get-freebusy", "get-current-time"]
+fixed_args = { account = "pro" }
+description_suffix = "(Compte professionnel Myelink, mvinceslas@myelink.io. Par défaut calendarId='primary' ; sinon uniquement un id renvoyé par calendar_pro_list_calendars, jamais un id du compte perso.)"
+[mcp.env]
+GOOGLE_OAUTH_CREDENTIALS = "/Users/medhyvinceslas/.secrets/google-oauth.json"
+GOOGLE_ACCOUNT_MODE = "pro"
+
+[[mcp]]
+name = "calendar_perso"
+command = "npx"
+args = ["-y", "@cocal/google-calendar-mcp"]
+tools = ["list-calendars", "list-events", "search-events", "get-freebusy", "get-current-time"]
+fixed_args = { account = "perso" }
+description_suffix = "(Compte personnel, medhy.vinceslas@gmail.com. Par défaut calendarId='primary' ; sinon uniquement un id renvoyé par calendar_perso_list_calendars, jamais un id du compte pro.)"
+[mcp.env]
+GOOGLE_OAUTH_CREDENTIALS = "/Users/medhyvinceslas/.secrets/google-oauth.json"
+GOOGLE_ACCOUNT_MODE = "perso"

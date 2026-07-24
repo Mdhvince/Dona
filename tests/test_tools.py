@@ -1,6 +1,7 @@
 from langchain_core.documents import Document
+from pydantic import BaseModel
 
-from src.tools import make_rag_tool
+from src.tools import make_rag_tool, sync_mcp_tool
 
 
 class FakeRetriever:
@@ -48,3 +49,28 @@ def test_tool_exposes_name_description_and_schema():
     assert rag.name == "rag_medhys_files"
     assert "Myelink" in rag.description
     assert "queries" in rag.args
+
+
+class EchoArgs(BaseModel):
+    message: str
+
+
+class FakeAsyncTool:
+    name = "echo"
+    description = "renvoie le message"
+    args_schema = EchoArgs
+
+    async def ainvoke(self, kwargs):
+        return f"echo:{kwargs['message']}"
+
+
+def test_sync_mcp_tool_wraps_async_invocation():
+    wrapped = sync_mcp_tool(FakeAsyncTool(), "demo_echo")
+    assert wrapped.name == "demo_echo"
+    assert wrapped.description == "renvoie le message"
+    assert wrapped.invoke({"message": "x"}) == "echo:x"
+
+
+def test_sync_mcp_tool_forces_fixed_args_over_model_values():
+    wrapped = sync_mcp_tool(FakeAsyncTool(), "demo_echo", {"message": "pinned"})
+    assert wrapped.invoke({"message": "autre"}) == "echo:pinned"

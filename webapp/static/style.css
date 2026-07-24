@@ -40,7 +40,8 @@ h1 {
   color: #767676;
 }
 
-#reindex-button {
+#reindex-button,
+#new-conversation-button {
   font: inherit;
   font-size: 0.85rem;
   padding: 0.45rem 0.9rem;
@@ -51,7 +52,8 @@ h1 {
   cursor: pointer;
 }
 
-#reindex-button:hover:not(:disabled) {
+#reindex-button:hover:not(:disabled),
+#new-conversation-button:hover:not(:disabled) {
   border-color: #1a1a1a;
 }
 

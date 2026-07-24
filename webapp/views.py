@@ -8,7 +8,13 @@ from flask import (Flask, Response, abort, jsonify, render_template, request,
 from langchain_chroma import Chroma
 from markdown import markdown
 
-from src.agent import build_agent, collect_queries, collect_sources, validate_citations
+import sqlite3
+
+from langgraph.checkpoint.sqlite import SqliteSaver
+
+from src.agent import (build_agent, collect_queries, collect_sources,
+                       current_turn, validate_citations)
+from src.tools import load_mcp_tools
 from src.config import load_config, llm_client, embedding_client, vlm_client
 from src.ingest import DOCS_DIRS, sync
 from src.retrieval import HybridRetriever
@@ -25,6 +31,13 @@ vectordb = Chroma(persist_directory=PERSIST_DIR,
                   embedding_function=embedding_client(config))
 
 agent = None
+# Kept outside the agent so conversations survive a reindex rebuild; sqlite
+# so they also survive server restarts. check_same_thread: Flask threads +
+# reindex thread share the connection, SqliteSaver serializes the accesses.
+checkpointer = SqliteSaver(sqlite3.connect(str(ROOT / "conversations.db"),
+                                           check_same_thread=False))
+# Loaded once at startup: reindex rebuilds reuse the same MCP tools
+mcp_tools = load_mcp_tools(config)
 
 
 def build_rag_agent():
@@ -36,7 +49,7 @@ def build_rag_agent():
         agent = None
         return
     retriever = HybridRetriever.from_vectordb(vectordb, **config["retriever"])
-    agent = build_agent(retriever, chat_llm)
+    agent = build_agent(retriever, chat_llm, checkpointer, extra_tools=mcp_tools)
 
 
 build_rag_agent()
@@ -83,7 +96,9 @@ def index():
 def ask():
     """NDJSON stream: one line per new batch of search queries as the agent
     works, then a final line with the full answer payload."""
-    question = (request.get_json(silent=True) or {}).get("question", "").strip()
+    payload = request.get_json(silent=True) or {}
+    question = payload.get("question", "").strip()
+    thread_id = payload.get("thread_id", "").strip() or "default"
     if not question:
         return jsonify(error="Question vide."), 400
     if agent is None:
@@ -91,34 +106,39 @@ def ask():
 
     def generate():
         try:
+            run_config = {"configurable": {"thread_id": thread_id}}
             state, seen_calls, seen_docs = None, set(), 0
             for state in agent.stream({"messages": [{"role": "user", "content": question}]},
-                                      stream_mode="values"):
-                for message in state["messages"]:
+                                      config=run_config, stream_mode="values"):
+                turn = current_turn(state["messages"])
+                for message in turn:
                     for call in getattr(message, "tool_calls", None) or []:
                         if call["id"] not in seen_calls:
                             seen_calls.add(call["id"])
                             yield json.dumps({"tool": call["name"], "args": call["args"]}) + "\n"
-                docs = len(collect_sources(state["messages"]))
+                docs = len(collect_sources(turn))
                 if docs > seen_docs:
                     seen_docs = docs
                     yield json.dumps({"retrieved": docs}) + "\n"
 
-            messages = state["messages"]
-            retrieved = collect_sources(messages)
+            turn = current_turn(state["messages"])
+            retrieved = collect_sources(turn)
             structured = state.get("structured_response")
             if structured is not None:
                 text = structured.response
-                sources = validate_citations(structured.sources, retrieved)
+                # Validated against the whole thread: a follow-up answered from
+                # memory may legitimately cite an earlier turn's document
+                sources = validate_citations(structured.sources,
+                                             collect_sources(state["messages"]))
             else:
-                text = messages[-1].content
+                text = turn[-1].content
                 sources = retrieved
             # nh3 strips raw HTML that python-markdown lets through (XSS via corpus)
             yield json.dumps({
                 "response": nh3.clean(markdown(text, extensions=["tables"])),
                 "sources": sources_payload(sources),
                 "consulted": len(retrieved),
-                "queries": collect_queries(messages)}) + "\n"
+                "queries": collect_queries(turn)}) + "\n"
         except Exception:
             app.logger.exception("agent failed")
             yield json.dumps({"error": "Le modèle n'a pas réussi à produire une réponse, réessaie."}) + "\n"

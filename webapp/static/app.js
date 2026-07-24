@@ -9,6 +9,11 @@ const answerSources = document.getElementById("answer-sources");
 const reindexButton = document.getElementById("reindex-button");
 const reindexStatus = document.getElementById("reindex-status");
 const reindexWarnings = document.getElementById("reindex-warnings");
+const newConversationButton = document.getElementById("new-conversation-button");
+
+// One thread per conversation: kept across reloads, renewed by the button
+let threadId = localStorage.getItem("thread_id") || crypto.randomUUID();
+localStorage.setItem("thread_id", threadId);
 
 function resetInteraction() {
   answerEl.hidden = true;
@@ -70,7 +75,7 @@ form.addEventListener("submit", async (event) => {
     const res = await fetch("/ask", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ question }),
+      body: JSON.stringify({ question, thread_id: threadId }),
     });
     if (!res.ok) {
       const failure = await res.json().catch(() => ({}));
@@ -165,6 +170,14 @@ async function refreshReindexState() {
     reindexStatus.textContent = "";
   }
 }
+
+newConversationButton.addEventListener("click", () => {
+  threadId = crypto.randomUUID();
+  localStorage.setItem("thread_id", threadId);
+  resetInteraction();
+  questionInput.value = "";
+  questionInput.focus();
+});
 
 reindexButton.addEventListener("click", async () => {
   reindexButton.disabled = true;

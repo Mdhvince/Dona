@@ -4,7 +4,7 @@ from pathlib import Path
 from langchain.agents import create_agent
 from langchain.agents.middleware import ModelRequest, dynamic_prompt
 from langchain.agents.structured_output import ProviderStrategy
-from langchain_core.messages import ToolMessage
+from langchain_core.messages import HumanMessage, ToolMessage
 from pydantic import BaseModel, Field
 
 from src.prompt import SYSTEM_PROMPT
@@ -31,14 +31,25 @@ def system_prompt(request: ModelRequest) -> str:
     return SYSTEM_PROMPT.format(date=date.today().strftime("%d/%m/%Y"))
 
 
-def build_agent(retriever, llm):
-    """Single-tool agent over the personal documents RAG: the model decides
-    when to search and with which queries."""
+def build_agent(retriever, llm, checkpointer=None, extra_tools=()):
+    """Agent over the personal documents RAG plus any extra tools (MCP
+    servers: calendar, gmail...). Passing a checkpointer enables multi-turn
+    conversations (one thread_id per conversation)."""
     return create_agent(
         model=llm,
-        tools=[make_rag_tool(retriever)],
+        tools=[make_rag_tool(retriever), *extra_tools],
         middleware=[system_prompt],
-        response_format=ProviderStrategy(AgentAnswer))
+        response_format=ProviderStrategy(AgentAnswer),
+        checkpointer=checkpointer)
+
+
+def current_turn(messages):
+    """Messages of the ongoing exchange: everything from the last human
+    message onward (the checkpointer brings the whole history back)."""
+    for i in range(len(messages) - 1, -1, -1):
+        if isinstance(messages[i], HumanMessage):
+            return messages[i:]
+    return messages
 
 
 def collect_sources(messages):
