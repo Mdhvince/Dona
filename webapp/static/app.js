@@ -1,7 +1,8 @@
 const form = document.getElementById("ask-form");
 const questionInput = document.getElementById("question");
 const button = document.getElementById("ask-button");
-const spinner = document.getElementById("spinner");
+const progress = document.getElementById("progress");
+const progressSteps = document.getElementById("progress-steps");
 const rewrittenEl = document.getElementById("rewritten");
 const answerEl = document.getElementById("answer");
 const answerSources = document.getElementById("answer-sources");
@@ -17,6 +18,12 @@ function resetInteraction() {
   answerSources.textContent = "";
   rewrittenEl.hidden = true;
   rewrittenEl.textContent = "";
+}
+
+function addProgressStep(text) {
+  const step = document.createElement("li");
+  step.textContent = text;
+  progressSteps.appendChild(step);
 }
 
 function showQueries(queries) {
@@ -55,7 +62,8 @@ form.addEventListener("submit", async (event) => {
   if (!question) return;
 
   resetInteraction();
-  spinner.hidden = false;
+  progressSteps.textContent = "";
+  progress.hidden = false;
   button.disabled = true;
 
   try {
@@ -64,8 +72,38 @@ form.addEventListener("submit", async (event) => {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ question }),
     });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error || res.statusText);
+    if (!res.ok) {
+      const failure = await res.json().catch(() => ({}));
+      throw new Error(failure.error || res.statusText);
+    }
+
+    // NDJSON stream: query batches as the agent searches, then the answer
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    let data = null;
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      let end;
+      while ((end = buffer.indexOf("\n")) >= 0) {
+        const line = buffer.slice(0, end).trim();
+        buffer = buffer.slice(end + 1);
+        if (!line) continue;
+        const event = JSON.parse(line);
+        if (event.error) throw new Error(event.error);
+        if (event.response !== undefined) {
+          data = event;
+        } else if (event.tool) {
+          const args = Object.values(event.args || {}).flat().join(" · ");
+          addProgressStep(`[Calling ${event.tool}]: ${args}`);
+        } else if (event.retrieved) {
+          addProgressStep(`${event.retrieved} extraits récupérés, rédaction de la réponse...`);
+        }
+      }
+    }
+    if (!data) throw new Error("réponse incomplète");
 
     answerEl.innerHTML = data.response;
     answerEl.hidden = false;
@@ -76,7 +114,7 @@ form.addEventListener("submit", async (event) => {
     answerEl.classList.add("error");
     answerEl.hidden = false;
   } finally {
-    spinner.hidden = true;
+    progress.hidden = true;
     button.disabled = false;
   }
 });

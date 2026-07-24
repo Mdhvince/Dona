@@ -1,8 +1,10 @@
+import json
 import threading
 from pathlib import Path
 
 import nh3
-from flask import Flask, abort, jsonify, render_template, request, send_file, url_for
+from flask import (Flask, Response, abort, jsonify, render_template, request,
+                   send_file, stream_with_context, url_for)
 from langchain_chroma import Chroma
 from markdown import markdown
 
@@ -79,30 +81,49 @@ def index():
 
 @app.route("/ask", methods=["POST"])
 def ask():
+    """NDJSON stream: one line per new batch of search queries as the agent
+    works, then a final line with the full answer payload."""
     question = (request.get_json(silent=True) or {}).get("question", "").strip()
     if not question:
         return jsonify(error="Question vide."), 400
     if agent is None:
         return jsonify(error="Index vide : lance une ré-indexation."), 503
-    try:
-        result = agent.invoke({"messages": [{"role": "user", "content": question}]})
-    except Exception:
-        app.logger.exception("agent failed")
-        return jsonify(error="Le modèle n'a pas réussi à produire une réponse, réessaie."), 500
-    messages = result["messages"]
-    retrieved = collect_sources(messages)
-    structured = result.get("structured_response")
-    if structured is not None:
-        text = structured.response
-        sources = validate_citations(structured.sources, retrieved)
-    else:
-        text = messages[-1].content
-        sources = retrieved
-    # nh3 strips raw HTML that python-markdown lets through (XSS via corpus)
-    return jsonify(response=nh3.clean(markdown(text, extensions=["tables"])),
-                   sources=sources_payload(sources),
-                   consulted=len(retrieved),
-                   queries=collect_queries(messages))
+
+    def generate():
+        try:
+            state, seen_calls, seen_docs = None, set(), 0
+            for state in agent.stream({"messages": [{"role": "user", "content": question}]},
+                                      stream_mode="values"):
+                for message in state["messages"]:
+                    for call in getattr(message, "tool_calls", None) or []:
+                        if call["id"] not in seen_calls:
+                            seen_calls.add(call["id"])
+                            yield json.dumps({"tool": call["name"], "args": call["args"]}) + "\n"
+                docs = len(collect_sources(state["messages"]))
+                if docs > seen_docs:
+                    seen_docs = docs
+                    yield json.dumps({"retrieved": docs}) + "\n"
+
+            messages = state["messages"]
+            retrieved = collect_sources(messages)
+            structured = state.get("structured_response")
+            if structured is not None:
+                text = structured.response
+                sources = validate_citations(structured.sources, retrieved)
+            else:
+                text = messages[-1].content
+                sources = retrieved
+            # nh3 strips raw HTML that python-markdown lets through (XSS via corpus)
+            yield json.dumps({
+                "response": nh3.clean(markdown(text, extensions=["tables"])),
+                "sources": sources_payload(sources),
+                "consulted": len(retrieved),
+                "queries": collect_queries(messages)}) + "\n"
+        except Exception:
+            app.logger.exception("agent failed")
+            yield json.dumps({"error": "Le modèle n'a pas réussi à produire une réponse, réessaie."}) + "\n"
+
+    return Response(stream_with_context(generate()), mimetype="application/x-ndjson")
 
 
 @app.route("/source")

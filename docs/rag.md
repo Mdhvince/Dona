@@ -144,9 +144,12 @@ Le RAG est un outil d'un agent LangGraph (`create_agent`, LangChain 1.x) :
 ## Webapp (`webapp/`, convention flask.md)
 
 - `GET /` : page unique (question, réponse, sources).
-- `POST /ask` : question -> invocation de l'agent -> réponse HTML (Markdown
-  converti et assaini côté serveur) + sources [{name, page, url}] + queries
-  (requêtes de recherche de l'agent, affichées sous le champ question).
+- `POST /ask` : flux NDJSON (`agent.stream(stream_mode="values")`). Pendant
+  l'attente, une ligne `{tool, args}` par appel d'outil de l'agent (affichée
+  "[Calling rag_medhys_files]: ..." à droite du spinner) et une ligne
+  `{retrieved}` quand des extraits arrivent ; puis une ligne finale avec la
+  réponse HTML (Markdown converti et assaini côté serveur), les sources
+  citées [{name, page, url}] et le nombre de documents consultés.
 - `GET /source?path=...` : sert le document (les liens file:// sont bloqués
   en HTTP), restreint aux racines indexées. Les sources s'affichent en
   liste compacte muted sous la réponse ("Sources : avis_2024.pdf, p.2 ...") ;
