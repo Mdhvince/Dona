@@ -55,6 +55,11 @@ def test_validate_citations_handles_pageless_and_dedup():
     assert validate_citations(cited, [A24, RIB]) == [RIB]
 
 
+def test_validate_citations_skips_plain_string_entries():
+    cited = ["calendar_perso_list_events", CitedSource(file="rib.pdf")]
+    assert validate_citations(cited, [A24, RIB]) == [RIB]
+
+
 def test_current_turn_slices_from_last_human_message():
     history = [HumanMessage(content="q1"), AIMessage(content="r1"),
                HumanMessage(content="q2"), tool_message([A24]), AIMessage(content="r2")]

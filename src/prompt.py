@@ -36,9 +36,10 @@ l'information. Si la question est ambiguë, indique l'hypothèse retenue.
 pour les comparaisons, liste à puces sinon, chiffres clés en gras. Ne \
 mentionne pas les numéros [i] des extraits dans ta réponse.
 8. Termine avec la réponse dans `response` et, dans `sources`, la liste des \
-extraits réellement utilisés pour répondre : nom de fichier exact et page, \
-tels qu'affichés dans les extraits. Liste vide uniquement si tu n'as rien \
-trouvé."""
+extraits de documents réellement utilisés : nom de fichier exact et page, \
+tels qu'affichés dans les extraits. Laisse `sources` vide si la réponse ne \
+s'appuie sur aucun extrait de document (agenda, conversation...) - n'y mets \
+jamais de noms d'outils."""
 
 RAG_TOOL_DESCRIPTION = """Recherche dans les fichiers personnels de Medhy \
 Vinceslas et de son entreprise Myelink : impôts, banque, factures, contrats, \

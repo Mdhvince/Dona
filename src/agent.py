@@ -17,11 +17,15 @@ class CitedSource(BaseModel):
 
 
 class AgentAnswer(BaseModel):
-    """Final structured output; field descriptions are French prompt content."""
+    """Final structured output; field descriptions are French prompt content.
+    sources tolerates plain strings so an off-schema citation (a tool name,
+    typically) degrades into a skipped entry instead of failing the whole
+    answer at validation time."""
     response: str = Field(description="La réponse en Markdown, sans mention des sources")
-    sources: list[CitedSource] = Field(
+    sources: list[CitedSource | str] = Field(
         default_factory=list,
-        description="Extraits réellement utilisés pour répondre, vide si rien trouvé")
+        description="Extraits de documents réellement utilisés pour répondre, "
+                    "vide si la réponse ne s'appuie sur aucun document")
 
 
 @dynamic_prompt
@@ -75,6 +79,8 @@ def validate_citations(cited, retrieved):
     by_key = {(Path(info["path"]).name, info["page"]): info for info in retrieved}
     validated, seen = [], set()
     for citation in cited:
+        if not isinstance(citation, CitedSource):
+            continue
         key = (citation.file, None if citation.page is None else str(citation.page))
         info = by_key.get(key)
         if info and key not in seen:
