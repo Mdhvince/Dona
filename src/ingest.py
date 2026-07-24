@@ -26,6 +26,7 @@ TEXT_SUFFIXES = {".txt", ".md"}
 IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg"}
 RENDER_DPI = 150
 
+
 def _transcribe(vlm, image_bytes, mime, prompt):
     b64 = base64.b64encode(image_bytes).decode()
     message = HumanMessage(content=[
