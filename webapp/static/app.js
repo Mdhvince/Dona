@@ -20,7 +20,7 @@ const reindexWarnings = document.getElementById("reindex-warnings");
 const newConversationButton = document.getElementById("new-conversation-button");
 
 const GREETING =
-  "Bonjour Medhy, que puis-je pour toi aujourd'hui ?\n\n"
+  "Bonjour Medhy, c'est moi Dona, que puis-je pour toi aujourd'hui ?\n\n"
   + "Je cherche dans tes documents et tes agendas, puis je te réponds en citant "
   + "les sources utilisées - elles s'affichent dans le panneau de gauche.";
 

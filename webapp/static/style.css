@@ -1,16 +1,16 @@
 :root {
-  --bg: #0f1011;
-  --panel: #1a1b1c;
-  --panel-border: #26282a;
-  --card: #202224;
-  --card-border: #292b2d;
-  --card-hover: #26282a;
-  --card-hover-border: #33363a;
-  --text: #e3e3e3;
-  --text-strong: #f1f1f1;
-  --text-body: #dadce0;
-  --muted: #8b9095;
-  --accent: #8ab4f8;
+  --bg: #0c0f12;
+  --panel: #14181c;
+  --panel-border: #232a30;
+  --card: #1a1f24;
+  --card-border: #232a30;
+  --card-hover: #1f262c;
+  --card-hover-border: #2e373f;
+  --text: #dde3e7;
+  --text-strong: #eef3f6;
+  --text-body: #d3dade;
+  --muted: #7f8b94;
+  --accent: #6fb3ab;
 }
 
 * {
@@ -36,7 +36,7 @@ a {
 }
 
 a:hover {
-  color: #aecbfa;
+  color: #8fcac2;
   text-decoration: underline;
 }
 
@@ -45,7 +45,7 @@ a:hover {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #2f3133;
+  background: #262f36;
   border: 3px solid transparent;
   background-clip: content-box;
 }
@@ -134,7 +134,7 @@ main .panel-header {
 }
 
 .icon-button:hover {
-  background: #26282a;
+  background: #1f262c;
 }
 
 .expand-sources {
@@ -147,13 +147,13 @@ main .panel-header {
   display: flex;
   width: 26px;
   height: 22px;
-  border: 1.5px solid #55595d;
+  border: 1.5px solid #4c5964;
 }
 
 .glyph-panel::before {
   content: "";
   width: 8px;
-  border-right: 1.5px solid #55595d;
+  border-right: 1.5px solid #4c5964;
 }
 
 .glyph-dots {
@@ -167,7 +167,7 @@ main .panel-header {
   width: 3.5px;
   height: 3.5px;
   border-radius: 50%;
-  background: #9aa0a6;
+  background: #8e9aa3;
 }
 
 .glyph-arrow {
@@ -189,7 +189,7 @@ main .panel-header {
 .glyph-doc {
   width: 30px;
   height: 38px;
-  border: 1.6px solid #4a4e52;
+  border: 1.6px solid #414d57;
   padding: 0 6px;
   display: flex;
   flex-direction: column;
@@ -201,7 +201,7 @@ main .panel-header {
 .glyph-doc::after {
   content: "";
   height: 1.5px;
-  background: #4a4e52;
+  background: #414d57;
 }
 
 .glyph-doc::after {
@@ -230,7 +230,7 @@ main .panel-header {
   flex-direction: column;
   min-width: 200px;
   padding: 6px;
-  border: 1px solid #2f3133;
+  border: 1px solid #262f36;
   background: var(--card);
   box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
 }
@@ -247,7 +247,7 @@ main .panel-header {
 }
 
 .menu-panel button:hover:not(:disabled) {
-  background: #2b2e31;
+  background: #232c33;
   color: #fff;
 }
 
@@ -293,8 +293,8 @@ a.source-card:hover {
   height: 20px;
   flex: none;
   margin-top: 1px;
-  border: 1px solid #3c4044;
-  background: #2f3336;
+  border: 1px solid #364049;
+  background: #232b32;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -304,7 +304,7 @@ a.source-card:hover {
   content: "";
   width: 8px;
   height: 10px;
-  border: 1.5px solid #9aa0a6;
+  border: 1.5px solid #8e9aa3;
 }
 
 .source-body {
@@ -317,7 +317,7 @@ a.source-card:hover {
 .source-title {
   font-size: 13.5px;
   line-height: 1.35;
-  color: #eceff1;
+  color: #e6edf1;
   overflow-wrap: anywhere;
 }
 
@@ -353,13 +353,13 @@ a.source-card:hover {
 
 .empty-title {
   font-size: 15px;
-  color: #c6cacd;
+  color: #bcc6cc;
 }
 
 .empty-text {
   font-size: 13.5px;
   line-height: 1.55;
-  color: #82878b;
+  color: #78838b;
   text-wrap: pretty;
 }
 
@@ -408,11 +408,11 @@ a.source-card:hover {
   align-self: flex-end;
   max-width: 78%;
   padding: 14px 20px;
-  border: 1px solid #31373e;
-  background: #262b31;
+  border: 1px solid #2b353d;
+  background: #1e262d;
   font-size: 16px;
   line-height: 1.5;
-  color: #eef0f2;
+  color: #e8eef2;
   white-space: pre-wrap;
   animation: fadeIn 0.3s ease both;
 }
@@ -448,12 +448,12 @@ a.source-card:hover {
 }
 
 .message-bot em {
-  color: #b6bbbf;
+  color: #a9b4bb;
 }
 
 .message-bot code {
   padding: 1px 5px;
-  background: #262829;
+  background: #1f272d;
   font-size: 0.92em;
 }
 
@@ -466,12 +466,12 @@ a.source-card:hover {
 .message-bot th,
 .message-bot td {
   padding: 0.4rem 0.75rem;
-  border: 1px solid #2f3133;
+  border: 1px solid #262f36;
   text-align: left;
 }
 
 .message-bot th {
-  background: #202224;
+  background: #1a1f24;
   color: var(--text-strong);
   font-weight: 600;
 }
@@ -503,7 +503,7 @@ a.source-card:hover {
   width: 20px;
   height: 20px;
   flex: none;
-  border: 2px solid #2f3133;
+  border: 2px solid #262f36;
   border-top-color: var(--accent);
   border-radius: 50%;
   animation: spin 0.8s linear infinite;
@@ -519,7 +519,7 @@ a.source-card:hover {
   padding: 0 0 0 2px;
   font-size: 12.5px;
   line-height: 1.7;
-  color: #6f7377;
+  color: #6b7780;
 }
 
 .activity-steps li {
@@ -538,8 +538,8 @@ a.source-card:hover {
 
 #suggestions button {
   padding: 13px 20px;
-  border: 1px solid #2c2f31;
-  background: #212325;
+  border: 1px solid #262f36;
+  background: #171c21;
   color: var(--text-body);
   font: inherit;
   font-size: 15.5px;
@@ -549,8 +549,8 @@ a.source-card:hover {
 }
 
 #suggestions button:hover {
-  background: #282a2d;
-  border-color: #3a3e42;
+  background: #1f262c;
+  border-color: #2e3941;
   color: #fff;
 }
 
@@ -566,7 +566,7 @@ a.source-card:hover {
   align-items: center;
   gap: 14px;
   padding: 14px 14px 14px 22px;
-  border: 1px solid #2e3134;
+  border: 1px solid #2a333b;
   background: var(--card);
 }
 
@@ -579,11 +579,11 @@ a.source-card:hover {
   background: transparent;
   font: inherit;
   font-size: 16px;
-  color: #eceff1;
+  color: #e6edf1;
 }
 
 #question::placeholder {
-  color: #6f7377;
+  color: #6b7780;
 }
 
 #composer-count {
@@ -600,12 +600,12 @@ a.source-card:hover {
   align-items: center;
   justify-content: center;
   border: none;
-  background: #2b2e31;
+  background: #232c33;
   cursor: pointer;
 }
 
 .send-button:hover:not(:disabled) {
-  background: #3a3e42;
+  background: #2e3941;
 }
 
 .send-button:disabled {
