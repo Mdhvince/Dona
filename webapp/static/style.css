@@ -138,6 +138,15 @@ h1 {
   font-size: 0.8rem;
   color: #767676;
   line-height: 1.7;
+  flex: 1;
+  min-width: 0;
+}
+
+/* One line per step: 1 line = 1 tool call or 1 thinking phase */
+#progress-steps li {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .spinner {
@@ -170,6 +179,19 @@ h1 {
 #answer.error {
   color: #767676;
   font-style: italic;
+}
+
+#answer-warning {
+  margin-top: 3rem;
+  padding: 0.6rem 0.85rem;
+  border: 1px solid #ccc;
+  border-radius: 6px;
+  font-size: 0.85rem;
+  color: #1a1a1a;
+}
+
+#answer-warning + #answer {
+  margin-top: 1rem;
 }
 
 #answer table {

@@ -14,7 +14,7 @@ import sqlite3
 from langgraph.checkpoint.sqlite import SqliteSaver
 
 from src.agent import (build_agent, collect_queries, collect_sources,
-                       current_turn, extract_citations)
+                       current_turn, extract_citations, tool_failures)
 from src.tools import load_mcp_tools, make_calendar_finder
 from src.config import load_config, llm_client, embedding_client, vlm_client
 from src.ingest import DOCS_DIRS, sync
@@ -162,9 +162,13 @@ def ask():
             # Candidates from the whole thread: a follow-up answered from
             # memory may legitimately cite an earlier turn's document
             sources = extract_citations(chat_llm, text, collect_sources(state["messages"]))
+            failed, succeeded = tool_failures(turn)
+            status = "ok" if not failed else ("partial" if succeeded else "error")
             # nh3 strips raw HTML that python-markdown lets through (XSS via corpus)
             yield json.dumps({
                 "response": nh3.clean(markdown(text, extensions=["tables"])),
+                "status": status,
+                "failed_tools": sorted(set(failed)),
                 "sources": sources_payload(sources),
                 "consulted": len(retrieved),
                 "queries": collect_queries(turn)}) + "\n"

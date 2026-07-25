@@ -1,7 +1,9 @@
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
 from src.agent import (CitedSource, CitedSources, collect_queries, collect_sources,
-                       current_turn, extract_citations, validate_citations)
+                       current_turn, extract_citations, tool_failures,
+                       validate_citations)
+from src.tools import TOOL_ERROR
 
 
 class FakeExtractorLLM:
@@ -91,6 +93,30 @@ def test_extract_citations_skips_the_call_without_candidates():
 
 def test_extract_citations_survives_llm_failure():
     assert extract_citations(FakeExtractorLLM(error=True), "réponse", [A24]) == []
+
+
+def test_tool_failures_maps_names_and_counts_successes():
+    messages = [
+        AIMessage(content="", tool_calls=[
+            {"name": "rag_medhys_files", "id": "1", "args": {}},
+            {"name": "calendar_pro_list_events", "id": "2", "args": {}}]),
+        ToolMessage(content="extraits ok", tool_call_id="1"),
+        ToolMessage(content=f"{TOOL_ERROR} permission", tool_call_id="2"),
+    ]
+    assert tool_failures(messages) == (["calendar_pro_list_events"], 1)
+
+
+def test_tool_failures_detects_framework_error_status():
+    messages = [
+        AIMessage(content="", tool_calls=[{"name": "outil", "id": "1", "args": {}}]),
+        ToolMessage(content="boom", tool_call_id="1", status="error"),
+    ]
+    assert tool_failures(messages) == (["outil"], 0)
+
+
+def test_tool_failures_clean_run():
+    assert tool_failures([HumanMessage(content="q"), tool_message([A24]),
+                          AIMessage(content="r")]) == ([], 1)
 
 
 def test_current_turn_slices_from_last_human_message():

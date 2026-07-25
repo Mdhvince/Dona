@@ -5,6 +5,7 @@ const progress = document.getElementById("progress");
 const progressSteps = document.getElementById("progress-steps");
 const rewrittenEl = document.getElementById("rewritten");
 const answerEl = document.getElementById("answer");
+const answerWarning = document.getElementById("answer-warning");
 const answerSources = document.getElementById("answer-sources");
 const reindexButton = document.getElementById("reindex-button");
 const reindexStatus = document.getElementById("reindex-status");
@@ -19,6 +20,8 @@ function resetInteraction() {
   answerEl.hidden = true;
   answerEl.textContent = "";
   answerEl.classList.remove("error");
+  answerWarning.hidden = true;
+  answerWarning.textContent = "";
   answerSources.hidden = true;
   answerSources.textContent = "";
   rewrittenEl.hidden = true;
@@ -131,6 +134,24 @@ form.addEventListener("submit", async (event) => {
       }
     }
     if (!data) throw new Error("réponse incomplète");
+
+    if (data.status === "error") {
+      answerEl.textContent =
+        "Un outil n'a pas pu être utilisé (erreur d'accès ou technique) : "
+        + "la réponse serait incomplète ou trompeuse, elle n'est pas affichée. "
+        + "Réessaie plus tard.";
+      answerEl.classList.add("error");
+      answerEl.hidden = false;
+      showQueries(data.queries);
+      return;
+    }
+
+    if (data.status === "partial") {
+      answerWarning.textContent =
+        `⚠ Échec de : ${(data.failed_tools || []).join(", ")} - la partie de `
+        + "la réponse qui en dépend est manquante ou non fiable.";
+      answerWarning.hidden = false;
+    }
 
     answerEl.innerHTML = data.response;
     answerEl.hidden = false;

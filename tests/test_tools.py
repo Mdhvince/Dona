@@ -73,9 +73,25 @@ def test_sync_mcp_tool_wraps_async_invocation():
     assert wrapped.invoke({"message": "x"}) == "echo:x"
 
 
-def test_sync_mcp_tool_forces_fixed_args_over_model_values():
-    wrapped = sync_mcp_tool(FakeAsyncTool(), "demo_echo", {"message": "pinned"})
-    assert wrapped.invoke({"message": "autre"}) == "echo:pinned"
+class FakeAsyncBlocksTool:
+    name = "list_events"
+    description = "liste"
+    args_schema = EchoArgs
+
+    def __init__(self, text):
+        self.text = text
+
+    async def ainvoke(self, kwargs):
+        return [{"type": "text", "text": self.text}]
+
+
+def test_sync_mcp_tool_json_contract_flags_non_json_results():
+    from src.tools import TOOL_ERROR
+    errored = sync_mcp_tool(FakeAsyncBlocksTool("The caller does not have permission"),
+                            "t", json_result=True)
+    assert TOOL_ERROR in str(errored.invoke({"message": "x"}))
+    valid = sync_mcp_tool(FakeAsyncBlocksTool('{"events": []}'), "t", json_result=True)
+    assert TOOL_ERROR not in str(valid.invoke({"message": "x"}))
 
 
 S_PORTO = {"id": "e1", "summary": "S porto",
@@ -83,52 +99,68 @@ S_PORTO = {"id": "e1", "summary": "S porto",
            "end": {"dateTime": "2026-07-25T14:00:00+02:00"}}
 
 
-def blocks(events):
-    return [{"type": "text", "text": json.dumps({"events": events})}]
+def blocks(events, key="events"):
+    return [{"type": "text", "text": json.dumps({key: events})}]
 
 
-class FakeCalendarTool:
-    def __init__(self, name, by_query=None, listing=None):
+class FakeListEvents:
+    def __init__(self, name, by_fulltext=None, listing=None, key="events"):
         self.name = name
-        self.by_query = by_query or {}
+        self.by_fulltext = by_fulltext or {}
         self.listing = listing or []
+        self.key = key
         self.calls = []
 
     def invoke(self, args):
         self.calls.append(args)
-        if "query" in args:
-            return blocks(self.by_query.get(args["query"], []))
-        return blocks(self.listing)
-
-
-def make_account(name, by_query=None, listing=None):
-    return [FakeCalendarTool(f"calendar_{name}_search_events", by_query=by_query),
-            FakeCalendarTool(f"calendar_{name}_list_events", listing=listing)]
+        if "fullText" in args:
+            return blocks(self.by_fulltext.get(args["fullText"], []), self.key)
+        return blocks(self.listing, self.key)
 
 
 def test_finder_returns_none_without_calendar_tools():
-    assert make_calendar_finder([FakeCalendarTool("autre_outil")]) is None
+    assert make_calendar_finder([FakeListEvents("autre_outil")]) is None
 
 
 def test_finder_searches_every_account_with_each_term():
-    pro = make_account("pro")
-    perso = make_account("perso", by_query={"porto": [S_PORTO]})
-    result = make_calendar_finder(pro + perso).invoke({"query": "Stefani Porto"})
+    pro = FakeListEvents("calendar_pro_list_events")
+    perso = FakeListEvents("calendar_perso_list_events", by_fulltext={"porto": [S_PORTO]})
+    result = make_calendar_finder([pro, perso]).invoke({"query": "Stefani Porto"})
     assert "[perso] S porto" in result
-    assert {c["query"] for c in pro[0].calls} == {"stefani", "porto"}
+    assert {c["fullText"] for c in pro.calls} == {"stefani", "porto"}
 
 
 def test_finder_falls_back_to_listing_on_literal_miss():
-    pro = make_account("pro")
-    perso = make_account("perso", listing=[S_PORTO])
-    result = make_calendar_finder(pro + perso).invoke({"query": "Stefani Porto"})
+    pro = FakeListEvents("calendar_pro_list_events")
+    perso = FakeListEvents("calendar_perso_list_events", listing=[S_PORTO])
+    result = make_calendar_finder([pro, perso]).invoke({"query": "Stefani Porto"})
     assert "[perso] S porto" in result
-    assert pro[1].calls and perso[1].calls
+    assert any("fullText" not in c for c in pro.calls)
 
 
-def test_finder_deduplicates_and_reports_empty():
-    pro = make_account("pro", by_query={"porto": [S_PORTO], "stefani": [S_PORTO]})
-    result = make_calendar_finder(pro).invoke({"query": "Stefani Porto"})
+def test_finder_reads_items_key_and_deduplicates():
+    pro = FakeListEvents("calendar_pro_list_events",
+                         by_fulltext={"porto": [S_PORTO], "stefani": [S_PORTO]}, key="items")
+    result = make_calendar_finder([pro]).invoke({"query": "Stefani Porto"})
     assert result.count("S porto") == 1
-    empty = make_calendar_finder(make_account("pro")).invoke({"query": "Zzz Yyy"})
-    assert "Aucun événement" in empty
+
+
+def test_finder_reports_empty():
+    pro = FakeListEvents("calendar_pro_list_events")
+    result = make_calendar_finder([pro]).invoke({"query": "Zzz Yyy"})
+    assert "Aucun événement" in result
+
+
+class ErrorListEvents:
+    name = "calendar_pro_list_events"
+
+    def invoke(self, args):
+        return [{"type": "text", "text": "The caller does not have permission"}]
+
+
+def test_finder_reports_tool_errors_instead_of_empty_agenda():
+    from src.tools import TOOL_ERROR
+    result = make_calendar_finder([ErrorListEvents()]).invoke({"query": "rdv"})
+    assert TOOL_ERROR in result
+    assert "permission" in result
+    assert "Aucun événement trouvé" not in result

@@ -1,24 +1,25 @@
 # Personal Assistant
 
-Assistant personnel de question/réponse (RAG) sur mes documents Google Drive,
-100% local : Ollama (LLM, vision, embeddings), Chroma, LangChain, Flask.
+Assistant personnel agentique sur mes données (documents Google Drive,
+agendas), 100% local : Ollama (LLM, vision, embeddings), Chroma, LangChain/
+LangGraph, Flask.
 
-L'architecture complète et ses justifications sont dans [docs/rag.md](docs/rag.md).
+## Documentation
+
+- [docs/rag.md](docs/rag.md) - ingestion des documents, index, retrieval
+- [docs/agentic.md](docs/agentic.md) - couche agentique : agent, outils, serveurs MCP, conversation
+- [docs/webapp.md](docs/webapp.md) - interface, routes, streaming
 
 ## Prérequis
 
-- [Ollama](https://ollama.com) démarré, avec les modèles `gpt-oss:20b`,
-  `qwen3.5:9b` et `qwen3-embedding:8b` (voir `config.toml`).
+- [Ollama](https://ollama.com) démarré, avec les modèles listés dans
+  `config.toml` ([llm], [vlm], [embedding]).
 - `uv sync` pour les dépendances Python.
 
 ## Utilisation
 
 ```bash
-uv run python src/ingest.py          # ingestion incrémentale
-uv run python src/ingest.py --full   # reconstruction complète (~30s/page)
-uv run python run.py                 # webapp sur http://127.0.0.1:5000
-uv run pytest                        # tests
+uv run python -m src.ingest    # ingestion incrémentale
+uv run python run.py           # webapp sur http://127.0.0.1:5001
+uv run pytest                  # tests
 ```
-
-La webapp permet de poser une question, voir la réponse avec ses sources
-(aperçu PDF ouvert à la page citée), et relancer l'ingestion incrémentale.

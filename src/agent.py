@@ -7,7 +7,7 @@ from langchain_core.messages import HumanMessage, ToolMessage
 from pydantic import BaseModel, Field
 
 from src.prompt import CITATION_PROMPT, SYSTEM_PROMPT
-from src.tools import make_rag_tool
+from src.tools import TOOL_ERROR, make_rag_tool
 
 
 class CitedSource(BaseModel):
@@ -103,6 +103,27 @@ def validate_citations(cited, retrieved):
             seen.add(key)
             validated.append(info)
     return validated
+
+
+def tool_failures(messages):
+    """(failed tool names, successful call count) for the run, detected in
+    code (TOOL_ERROR sentinel emitted by the tool layer, or error status set
+    by the framework) so the UI can report failures deterministically: the
+    LLM never narrates them."""
+    call_names = {call["id"]: call["name"]
+                  for message in messages
+                  for call in (getattr(message, "tool_calls", None) or [])}
+    failed, succeeded = [], 0
+    for message in messages:
+        if not isinstance(message, ToolMessage):
+            continue
+        errored = (getattr(message, "status", None) == "error"
+                   or TOOL_ERROR in str(message.content))
+        if errored:
+            failed.append(call_names.get(message.tool_call_id, "outil inconnu"))
+        else:
+            succeeded += 1
+    return failed, succeeded
 
 
 def collect_queries(messages):

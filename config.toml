@@ -34,30 +34,25 @@ rrf_k = 60    # Reciprocal Rank Fusion smoothing constant
 chunk_size = 1000
 chunk_overlap = 100
 
-# MCP servers exposed to the agent as tools, one block per server. The same
-# server runs once per account (GOOGLE_ACCOUNT_MODE selects the OAuth token,
-# created via: npx @cocal/google-calendar-mcp auth <account>): tools get
-# renamed <name>_<tool>. "tools" is a read-only whitelist: anything not
-# listed is not given to the agent.
+# MCP servers exposed to the agent as tools, one block per server; tools get
+# renamed <name>_<tool> and "tools" is a read-only whitelist. Google official
+# remote servers use transport = "http": one token file per account, created
+# via: uv run python -m src.google_auth <account> calendar
 
 [[mcp]]
 name = "calendar_pro"
-command = "npx"
-args = ["-y", "@cocal/google-calendar-mcp"]
-tools = ["list-calendars", "list-events", "search-events", "get-freebusy", "get-current-time"]
-fixed_args = { account = "pro" }
+transport = "http"
+url = "https://calendarmcp.googleapis.com/mcp/v1"
+token_file = "/Users/medhyvinceslas/.secrets/google-mcp-pro-calendar.json"
+tools = ["list_calendars", "list_events", "get_event", "suggest_time"]
+json_result = true
 description_suffix = "(Compte professionnel Myelink, mvinceslas@myelink.io.)"
-[mcp.env]
-GOOGLE_OAUTH_CREDENTIALS = "/Users/medhyvinceslas/.secrets/google-oauth.json"
-GOOGLE_ACCOUNT_MODE = "pro"
 
 [[mcp]]
 name = "calendar_perso"
-command = "npx"
-args = ["-y", "@cocal/google-calendar-mcp"]
-tools = ["list-calendars", "list-events", "search-events", "get-freebusy", "get-current-time"]
-fixed_args = { account = "perso" }
+transport = "http"
+url = "https://calendarmcp.googleapis.com/mcp/v1"
+token_file = "/Users/medhyvinceslas/.secrets/google-mcp-perso-calendar.json"
+tools = ["list_calendars", "list_events", "get_event", "suggest_time"]
+json_result = true
 description_suffix = "(Compte personnel, medhy.vinceslas@gmail.com.)"
-[mcp.env]
-GOOGLE_OAUTH_CREDENTIALS = "/Users/medhyvinceslas/.secrets/google-oauth.json"
-GOOGLE_ACCOUNT_MODE = "perso"
