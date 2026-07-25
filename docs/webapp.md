@@ -2,13 +2,15 @@
 
 Interface Flask (`webapp/`, convention flask.md : `run.py` à la racine,
 package avec `views.py`, `templates/`, `static/`). Port 5001 (le 5000 est
-occupé par le récepteur AirPlay de macOS). Look minimaliste noir/blanc/gris,
-sans framework CSS. Le pipeline (agent, retriever, outils MCP) est construit
-une fois au démarrage et reconstruit après chaque ré-indexation.
+occupé par le récepteur AirPlay de macOS). Thème sombre à deux panneaux
+(sources à gauche, conversation à droite), sans framework CSS. Le pipeline
+(agent, retriever, outils MCP) est construit une fois au démarrage et
+reconstruit après chaque ré-indexation.
 
 ## Routes
 
-- `GET /` : page unique - champ question, réponse, sources.
+- `GET /` : page unique - panneau Sources à gauche (repliable), fil de
+  conversation à droite avec le composeur en bas.
 - `POST /ask` (`{question, thread_id}`) : flux NDJSON sur
   `agent.stream(stream_mode=["messages", "values"])` :
   - battements `{phase, tokens}` throttlés issus du flux de tokens :
@@ -39,22 +41,30 @@ une fois au démarrage et reconstruit après chaque ré-indexation.
 
 ## Comportement du front
 
-- Le fil d'activité (à droite du spinner) montre le travail de l'agent en
-  direct : une ligne vivante pour les phases, des lignes empilées pour les
-  appels d'outils (`[Calling <outil>]: <args>`) et les extraits récupérés.
-  Chaque étape tient sur une ligne (troncature ellipse) : 1 ligne = 1 appel
-  d'outil ou 1 phase.
-- Sous la réponse, les sources en liste compacte muted ("Sources :
-  avis_2024.pdf, p.2 · ...", plus le nombre de documents consultés) ; un
-  clic ouvre le document dans un nouvel onglet à la page citée (`#page=N`).
-- Les requêtes de recherche de l'agent s'affichent en muted sous le champ
-  question une fois la réponse rendue.
-- Conversation : le `thread_id` vit dans le localStorage (survit aux
-  rechargements de page) ; le bouton "Nouvelle conversation" en génère un
-  neuf et vide l'écran. L'affichage ne montre qu'un échange à la fois, mais
-  la mémoire du fil persiste côté serveur.
-- Après une ré-indexation, les alertes de validation s'affichent dans un
-  panneau dépliable sous le header.
+- **Fil de conversation** : les échanges s'empilent à l'écran (question en
+  bulle alignée à droite, réponse en texte pleine largeur). Un message
+  d'accueil et trois questions d'amorce cliquables ouvrent chaque nouvelle
+  conversation. Le `thread_id` vit dans le localStorage ; "Nouvelle
+  conversation" (menu ⋮) en génère un neuf et vide l'écran. Un rechargement
+  de page vide l'affichage mais pas la mémoire du fil, conservée côté
+  serveur.
+- **Activité en direct** : pendant l'attente, un bloc de points clignotants
+  affiche la phase courante (réflexion avec compteur de tokens, préparation
+  d'outil, rédaction) et empile les étapes discrètes en dessous
+  (`[Calling <outil>]: <args>`, extraits récupérés) - une étape par ligne,
+  tronquée en ellipse. Le bloc disparaît quand la réponse arrive.
+- **Panneau Sources** : les sources citées s'accumulent en cartes
+  (nom de fichier + page) sur toute la conversation, dédupliquées ; un clic
+  ouvre le document dans un nouvel onglet à la page citée (`#page=N`). Le
+  compteur est repris dans le composeur, et le panneau se replie via son
+  bouton d'en-tête. Un état vide explicite s'affiche tant qu'aucune source
+  n'est citée.
+- **Échecs d'outils** : `status: "error"` remplace la réponse par un message
+  fixe ; `status: "partial"` insère un bandeau d'avertissement listant les
+  outils en échec au-dessus de la réponse.
+- **Menu ⋮** : "Nouvelle conversation" et "Re-indexer" ; la progression
+  d'indexation s'affiche dans le header et les alertes de validation dans un
+  panneau dépliable sous celui-ci.
 
 ## Commandes
 

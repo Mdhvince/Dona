@@ -1,50 +1,34 @@
 const form = document.getElementById("ask-form");
 const questionInput = document.getElementById("question");
-const button = document.getElementById("ask-button");
-const progress = document.getElementById("progress");
-const progressSteps = document.getElementById("progress-steps");
-const rewrittenEl = document.getElementById("rewritten");
-const answerEl = document.getElementById("answer");
-const answerWarning = document.getElementById("answer-warning");
-const answerSources = document.getElementById("answer-sources");
+const sendButton = document.getElementById("ask-button");
+const messagesEl = document.getElementById("messages");
+const suggestionsEl = document.getElementById("suggestions");
+const threadEl = document.getElementById("thread");
+const sourcesPanel = document.getElementById("sources-panel");
+const sourcesList = document.getElementById("sources-list");
+const sourcesItems = document.getElementById("sources-items");
+const sourcesEmpty = document.getElementById("sources-empty");
+const sourceCount = document.getElementById("source-count");
+const composerCount = document.getElementById("composer-count");
+const collapseSources = document.getElementById("collapse-sources");
+const expandSources = document.getElementById("expand-sources");
+const menuButton = document.getElementById("menu-button");
+const menu = document.getElementById("menu");
 const reindexButton = document.getElementById("reindex-button");
 const reindexStatus = document.getElementById("reindex-status");
 const reindexWarnings = document.getElementById("reindex-warnings");
 const newConversationButton = document.getElementById("new-conversation-button");
 
-// One thread per conversation: kept across reloads, renewed by the button
-let threadId = localStorage.getItem("thread_id") || crypto.randomUUID();
-localStorage.setItem("thread_id", threadId);
+const GREETING =
+  "Bonjour Medhy, que puis-je pour toi aujourd'hui ?\n\n"
+  + "Je cherche dans tes documents et tes agendas, puis je te réponds en citant "
+  + "les sources utilisées - elles s'affichent dans le panneau de gauche.";
 
-function resetInteraction() {
-  answerEl.hidden = true;
-  answerEl.textContent = "";
-  answerEl.classList.remove("error");
-  answerWarning.hidden = true;
-  answerWarning.textContent = "";
-  answerSources.hidden = true;
-  answerSources.textContent = "";
-  rewrittenEl.hidden = true;
-  rewrittenEl.textContent = "";
-}
-
-let liveStep = null;
-
-function addProgressStep(text) {
-  const step = document.createElement("li");
-  step.textContent = text;
-  progressSteps.appendChild(step);
-  liveStep = null;
-}
-
-// Single mutating line for the heartbeat phases; discrete steps stay appended
-function setLiveStep(text) {
-  if (!liveStep) {
-    liveStep = document.createElement("li");
-    progressSteps.appendChild(liveStep);
-  }
-  liveStep.textContent = text;
-}
+const STARTERS = [
+  "Quel est mon numéro de SIRET ?",
+  "J'ai quoi de prévu aujourd'hui ?",
+  "Combien d'impôts j'ai payé en 2024 ?",
+];
 
 const PHASES = {
   thinking: (event) => `Réflexion... (${event.tokens} tokens)`,
@@ -52,46 +36,137 @@ const PHASES = {
   answer: (event) => `Rédaction de la réponse... (${event.tokens} tokens)`,
 };
 
-function showQueries(queries) {
-  if (!queries || queries.length === 0) return;
-  rewrittenEl.textContent = `Recherche : ${queries.join(" · ")}`;
-  rewrittenEl.hidden = false;
+// One thread per conversation: kept across reloads, renewed from the menu
+let threadId = localStorage.getItem("thread_id") || crypto.randomUUID();
+localStorage.setItem("thread_id", threadId);
+
+const citedSources = new Map();
+
+function scrollDown() {
+  requestAnimationFrame(() => { threadEl.scrollTop = threadEl.scrollHeight; });
 }
 
-function showSources(sources, consulted) {
-  answerSources.textContent = "";
-  if (!sources || sources.length === 0) {
-    answerSources.hidden = true;
-    return;
+function addUserMessage(text) {
+  const message = document.createElement("div");
+  message.className = "message-user";
+  message.textContent = text;
+  messagesEl.appendChild(message);
+  scrollDown();
+}
+
+function addBotMessage(html, { plainText = false, error = false } = {}) {
+  const message = document.createElement("div");
+  message.className = error ? "message-bot error" : "message-bot";
+  if (plainText) {
+    message.textContent = html;
+  } else {
+    message.innerHTML = html;
   }
-  answerSources.append("Sources : ");
-  sources.forEach((source, i) => {
-    if (i > 0) answerSources.append(" · ");
-    const link = document.createElement("a");
+  messagesEl.appendChild(message);
+  scrollDown();
+  return message;
+}
+
+function addWarning(text) {
+  const warning = document.createElement("div");
+  warning.className = "message-warning";
+  warning.textContent = text;
+  messagesEl.appendChild(warning);
+}
+
+function showSuggestions(questions) {
+  suggestionsEl.textContent = "";
+  for (const question of questions) {
+    const chip = document.createElement("button");
+    chip.type = "button";
+    chip.textContent = question;
+    chip.addEventListener("click", () => ask(question));
+    suggestionsEl.appendChild(chip);
+  }
+}
+
+function updateSourceCount() {
+  const count = citedSources.size;
+  const label = `${count} ${count === 1 ? "source" : "sources"}`;
+  sourceCount.textContent = label;
+  composerCount.textContent = label;
+  sourcesList.hidden = count === 0;
+  sourcesEmpty.hidden = count > 0;
+}
+
+function addSources(sources) {
+  for (const source of sources || []) {
+    const key = `${source.name}#${source.page}`;
+    if (citedSources.has(key)) continue;
+    citedSources.set(key, source);
+
+    const card = document.createElement("a");
+    card.className = "source-card";
     // #page=N opens the browser PDF viewer directly on the cited page
-    link.href = source.url + (source.page !== null ? `#page=${source.page}` : "");
-    link.target = "_blank";
-    link.textContent = source.page !== null
-      ? `${source.name}, p.${source.page}`
-      : source.name;
-    answerSources.appendChild(link);
-  });
-  if (consulted > sources.length) {
-    answerSources.append(` (${consulted} documents consultés)`);
+    card.href = source.url + (source.page !== null ? `#page=${source.page}` : "");
+    card.target = "_blank";
+    card.title = "Ouvrir le document";
+
+    const icon = document.createElement("span");
+    icon.className = "source-icon";
+    const body = document.createElement("span");
+    body.className = "source-body";
+    const title = document.createElement("span");
+    title.className = "source-title";
+    title.textContent = source.name;
+    const desc = document.createElement("span");
+    desc.className = "source-desc";
+    desc.textContent = source.page !== null ? `Page ${source.page}` : "Document";
+
+    body.append(title, desc);
+    card.append(icon, body);
+    sourcesItems.appendChild(card);
   }
-  answerSources.hidden = false;
+  updateSourceCount();
 }
 
-form.addEventListener("submit", async (event) => {
-  event.preventDefault();
-  const question = questionInput.value.trim();
-  if (!question) return;
+// Live activity block: blinking dots, a mutating phase label, and the
+// discrete steps (tool calls, retrieved chunks) stacked underneath
+function startActivity() {
+  const activity = document.createElement("div");
+  activity.className = "activity";
 
-  resetInteraction();
-  progressSteps.textContent = "";
-  liveStep = null;
-  progress.hidden = false;
-  button.disabled = true;
+  const header = document.createElement("div");
+  header.className = "activity-head";
+  const spinner = document.createElement("div");
+  spinner.className = "spinner";
+  const label = document.createElement("span");
+  label.className = "activity-label";
+  label.textContent = "L'assistant consulte les sources...";
+  header.append(spinner, label);
+
+  const steps = document.createElement("ul");
+  steps.className = "activity-steps";
+
+  activity.append(header, steps);
+  messagesEl.appendChild(activity);
+  scrollDown();
+
+  return {
+    setPhase(text) { label.textContent = text; },
+    addStep(text) {
+      const step = document.createElement("li");
+      step.textContent = text;
+      steps.appendChild(step);
+      scrollDown();
+    },
+    remove() { activity.remove(); },
+  };
+}
+
+async function ask(question) {
+  if (sendButton.disabled) return;
+
+  suggestionsEl.textContent = "";
+  questionInput.value = "";
+  addUserMessage(question);
+  const activity = startActivity();
+  sendButton.disabled = true;
 
   try {
     const res = await fetch("/ask", {
@@ -104,7 +179,7 @@ form.addEventListener("submit", async (event) => {
       throw new Error(failure.error || res.statusText);
     }
 
-    // NDJSON stream: query batches as the agent searches, then the answer
+    // NDJSON stream: activity events as the agent works, then the answer
     const reader = res.body.getReader();
     const decoder = new TextDecoder();
     let buffer = "";
@@ -124,47 +199,83 @@ form.addEventListener("submit", async (event) => {
           data = event;
         } else if (event.phase) {
           const render = PHASES[event.phase];
-          if (render) setLiveStep(render(event));
+          if (render) activity.setPhase(render(event));
         } else if (event.tool) {
           const args = Object.values(event.args || {}).flat().join(" · ");
-          addProgressStep(`[Calling ${event.tool}]: ${args}`);
+          activity.addStep(`[Calling ${event.tool}]: ${args}`);
         } else if (event.retrieved) {
-          addProgressStep(`${event.retrieved} extraits récupérés`);
+          activity.addStep(`${event.retrieved} extraits récupérés`);
         }
       }
     }
     if (!data) throw new Error("réponse incomplète");
 
+    activity.remove();
+
     if (data.status === "error") {
-      answerEl.textContent =
-        "Un outil n'a pas pu être utilisé (erreur d'accès ou technique) : "
-        + "la réponse serait incomplète ou trompeuse, elle n'est pas affichée. "
-        + "Réessaie plus tard.";
-      answerEl.classList.add("error");
-      answerEl.hidden = false;
-      showQueries(data.queries);
+      addBotMessage(
+        "Un outil n'a pas pu être utilisé (erreur d'accès ou technique) : la "
+        + "réponse serait incomplète ou trompeuse, elle n'est pas affichée. "
+        + "Réessaie plus tard.",
+        { plainText: true, error: true });
       return;
     }
 
     if (data.status === "partial") {
-      answerWarning.textContent =
+      addWarning(
         `⚠ Échec de : ${(data.failed_tools || []).join(", ")} - la partie de `
-        + "la réponse qui en dépend est manquante ou non fiable.";
-      answerWarning.hidden = false;
+        + "la réponse qui en dépend est manquante ou non fiable.");
     }
 
-    answerEl.innerHTML = data.response;
-    answerEl.hidden = false;
-    showQueries(data.queries);
-    showSources(data.sources, data.consulted);
+    addBotMessage(data.response);
+    addSources(data.sources);
   } catch (err) {
-    answerEl.textContent = `Une erreur est survenue : ${err.message}`;
-    answerEl.classList.add("error");
-    answerEl.hidden = false;
+    activity.remove();
+    addBotMessage(`Une erreur est survenue : ${err.message}`,
+                  { plainText: true, error: true });
   } finally {
-    progress.hidden = true;
-    button.disabled = false;
+    sendButton.disabled = false;
+    questionInput.focus();
   }
+}
+
+function startConversation() {
+  messagesEl.textContent = "";
+  sourcesItems.textContent = "";
+  citedSources.clear();
+  updateSourceCount();
+  addBotMessage(GREETING, { plainText: true });
+  showSuggestions(STARTERS);
+}
+
+form.addEventListener("submit", (event) => {
+  event.preventDefault();
+  const question = questionInput.value.trim();
+  if (question) ask(question);
+});
+
+collapseSources.addEventListener("click", () => {
+  sourcesPanel.hidden = true;
+  expandSources.hidden = false;
+});
+
+expandSources.addEventListener("click", () => {
+  sourcesPanel.hidden = false;
+  expandSources.hidden = true;
+});
+
+menuButton.addEventListener("click", (event) => {
+  event.stopPropagation();
+  menu.hidden = !menu.hidden;
+});
+
+document.addEventListener("click", () => { menu.hidden = true; });
+
+newConversationButton.addEventListener("click", () => {
+  threadId = crypto.randomUUID();
+  localStorage.setItem("thread_id", threadId);
+  startConversation();
+  questionInput.focus();
 });
 
 function showValidationWarnings(warnings) {
@@ -187,8 +298,7 @@ function showReindexState(state) {
     reindexWarnings.hidden = true;
     if (state.total > 0) {
       const percent = Math.round((state.done / state.total) * 100);
-      reindexStatus.textContent =
-        `Indexation... ${state.done}/${state.total} (${percent}%)`;
+      reindexStatus.textContent = `Indexation... ${state.done}/${state.total} (${percent}%)`;
     } else {
       reindexStatus.textContent = "Indexation en cours...";
     }
@@ -214,19 +324,11 @@ async function refreshReindexState() {
   }
 }
 
-newConversationButton.addEventListener("click", () => {
-  threadId = crypto.randomUUID();
-  localStorage.setItem("thread_id", threadId);
-  resetInteraction();
-  questionInput.value = "";
-  questionInput.focus();
-});
-
 reindexButton.addEventListener("click", async () => {
   reindexButton.disabled = true;
   const res = await fetch("/reindex", { method: "POST" });
   showReindexState(await res.json());
 });
 
-// Resume the status display if a reindex is already running (page reload)
+startConversation();
 refreshReindexState();

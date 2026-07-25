@@ -23,9 +23,8 @@ via un middleware `dynamic_prompt`).
   rend les candidats dédupliqués au modèle, qui n'a plus qu'à reconnaître
   le bon (les intitulés d'événements sont souvent abrégés).
 - **Serveurs MCP** (`load_mcp_tools`) : déclarés en blocs `[[mcp]]` dans
-  config.toml, connectés au démarrage via langchain-mcp-adapters, outils
-  renommés `<serveur>_<outil>`. Deux transports : `stdio` (process local)
-  et `http` (serveurs distants). Whitelist d'outils par serveur (lecture
+  config.toml, connectés au démarrage via langchain-mcp-adapters (stdio),
+  outils renommés `<serveur>_<outil>`. Whitelist d'outils par serveur (lecture
   seule ; un nom absent du serveur déclenche un avertissement) ; un serveur
   injoignable est ignoré avec un avertissement, l'agent continue sans lui.
   Les outils MCP étant async, ils sont enveloppés en outils synchrones (une
@@ -45,25 +44,18 @@ la réponse devient "error" (tous les appels ont échoué) ou "partial"
 d'avertissement listant les outils en échec - le modèle ne narre jamais
 un échec à l'utilisateur.
 
-## Serveurs MCP Google officiels
+## Calendrier
 
-Calendar passe par les serveurs MCP officiels de Google
-(`calendarmcp.googleapis.com`, transport http), un bloc par compte
-(pro/perso) : l'identité du compte est portée par le token OAuth de la
-connexion. Authentification dans `src/google_auth.py` : client OAuth "Web
-application" (redirect `http://localhost:8765/`), scopes readonly
-uniquement, un refresh token par compte et par service dans `~/.secrets`,
-rafraîchi automatiquement à chaque requête (`GoogleTokenAuth`).
-
-```bash
-uv run python -m src.google_auth <compte> <preset>   # ex: pro calendar
-```
-
-Accès conditionné à l'enrôlement du compte Google au Workspace Developer
-Preview Program ; tant qu'un compte n'est pas accepté, les appels renvoient
-"caller does not have permission" et l'agent le signale. Les outils
-d'écriture (create/update/delete_event) sont hors whitelist en attendant un
-mécanisme de confirmation human-in-the-loop.
+Calendar passe par le serveur communautaire `@cocal/google-calendar-mcp`
+(stdio, un process npx par compte). `GOOGLE_ACCOUNT_MODE` sélectionne le
+token du compte (créé via `npx @cocal/google-calendar-mcp auth <compte>`,
+stocké dans `~/.config/google-calendar-mcp`, client OAuth "Desktop" dans
+`~/.secrets/google-oauth.json`) et `fixed_args` épingle le paramètre
+`account` de chaque outil : le modèle ne peut pas interroger un autre
+compte que celui de l'instance. `json_result = true` déclare le contrat de
+payload pour la détection d'erreurs. Les outils d'écriture (create/update/
+delete-event) sont hors whitelist en attendant un mécanisme de confirmation
+human-in-the-loop.
 
 ## Conversation
 

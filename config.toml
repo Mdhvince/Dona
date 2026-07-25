@@ -34,25 +34,33 @@ rrf_k = 60    # Reciprocal Rank Fusion smoothing constant
 chunk_size = 1000
 chunk_overlap = 100
 
-# MCP servers exposed to the agent as tools, one block per server; tools get
-# renamed <name>_<tool> and "tools" is a read-only whitelist. Google official
-# remote servers use transport = "http": one token file per account, created
-# via: uv run python -m src.google_auth <account> calendar
+# MCP servers exposed to the agent as tools, one block per server (stdio);
+# tools get renamed <name>_<tool>, "tools" is a read-only whitelist,
+# fixed_args pins values the model must not control, json_result declares
+# that valid results are JSON (anything else = tool error).
 
 [[mcp]]
 name = "calendar_pro"
-transport = "http"
-url = "https://calendarmcp.googleapis.com/mcp/v1"
-token_file = "/Users/medhyvinceslas/.secrets/google-mcp-pro-calendar.json"
-tools = ["list_calendars", "list_events", "get_event", "suggest_time"]
+command = "npx"
+args = ["-y", "@cocal/google-calendar-mcp"]
+tools = ["list-calendars", "list-events", "search-events", "get-freebusy", "get-current-time"]
 json_result = true
+fixed_args = { account = "pro" }
+default_args = { calendarId = "primary" }
 description_suffix = "(Compte professionnel Myelink, mvinceslas@myelink.io.)"
+[mcp.env]
+GOOGLE_OAUTH_CREDENTIALS = "/Users/medhyvinceslas/.secrets/google-oauth.json"
+GOOGLE_ACCOUNT_MODE = "pro"
 
 [[mcp]]
 name = "calendar_perso"
-transport = "http"
-url = "https://calendarmcp.googleapis.com/mcp/v1"
-token_file = "/Users/medhyvinceslas/.secrets/google-mcp-perso-calendar.json"
-tools = ["list_calendars", "list_events", "get_event", "suggest_time"]
+command = "npx"
+args = ["-y", "@cocal/google-calendar-mcp"]
+tools = ["list-calendars", "list-events", "search-events", "get-freebusy", "get-current-time"]
 json_result = true
+fixed_args = { account = "perso" }
+default_args = { calendarId = "primary" }
 description_suffix = "(Compte personnel, medhy.vinceslas@gmail.com.)"
+[mcp.env]
+GOOGLE_OAUTH_CREDENTIALS = "/Users/medhyvinceslas/.secrets/google-oauth.json"
+GOOGLE_ACCOUNT_MODE = "perso"

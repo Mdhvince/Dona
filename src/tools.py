@@ -7,7 +7,6 @@ from pathlib import Path
 
 from langchain_core.tools import StructuredTool, tool
 
-from src.google_auth import GoogleTokenAuth
 from src.prompt import CALENDAR_FINDER_DESCRIPTION, RAG_TOOL_DESCRIPTION
 
 # Sentinel emitted by the tool layer when a call fails; scanned in code to
@@ -33,14 +32,22 @@ def _source_of(doc):
             "page": None if page is None else str(page)}
 
 
-def sync_mcp_tool(mcp_tool, name, description=None, json_result=False):
+def sync_mcp_tool(mcp_tool, name, description=None, json_result=False,
+                  fixed_args=None, default_args=None):
     """MCP adapter tools are async-only; wrap them so the sync agent and
     Flask stack can call them (one short-lived event loop per call, the
     adapter opens a fresh MCP session each time). json_result declares that
     the server answers JSON payloads: any non-JSON result is then an error
-    surfaced as content (Google's remote servers do this) and gets the
-    TOOL_ERROR sentinel, so failures are detected in code."""
+    surfaced as content and gets the TOOL_ERROR sentinel, so failures are
+    detected in code. fixed_args are forced over whatever the model passes
+    (values the model must not control: the account of a multi-account
+    server); default_args only fill keys the model omitted (required params
+    with an obvious value, like calendarId="primary")."""
     def run(**kwargs):
+        for key, value in (default_args or {}).items():
+            if kwargs.get(key) is None:
+                kwargs[key] = value
+        kwargs.update(fixed_args or {})
         try:
             result = asyncio.run(mcp_tool.ainvoke(kwargs))
         except Exception as exc:
@@ -67,16 +74,11 @@ def load_mcp_tools(config):
 
     tools = []
     for server in config.get("mcp", []):
-        if server.get("transport") == "http":
-            connection = {"transport": "streamable_http",
-                          "url": server["url"],
-                          "auth": GoogleTokenAuth(server["token_file"])}
-        else:
-            connection = {"transport": "stdio",
-                          "command": server["command"],
-                          "args": server.get("args", []),
-                          "env": {**os.environ, **server.get("env", {})}}
-        client = MultiServerMCPClient({server["name"]: connection})
+        client = MultiServerMCPClient({server["name"]: {
+            "transport": "stdio",
+            "command": server["command"],
+            "args": server.get("args", []),
+            "env": {**os.environ, **server.get("env", {})}}})
         try:
             loaded = asyncio.run(client.get_tools())
         except Exception as exc:
@@ -90,7 +92,9 @@ def load_mcp_tools(config):
         suffix = server.get("description_suffix", "")
         selected = [sync_mcp_tool(mcp_tool, f"{server['name']}_{mcp_tool.name}".replace("-", "_"),
                                   f"{mcp_tool.description} {suffix}".strip() if suffix else None,
-                                  server.get("json_result", False))
+                                  server.get("json_result", False),
+                                  server.get("fixed_args"),
+                                  server.get("default_args"))
                     for mcp_tool in loaded
                     if not allowed or mcp_tool.name in allowed]
         tools.extend(selected)
@@ -135,10 +139,11 @@ def make_calendar_finder(mcp_tools, max_results=30):
     calendar account is available."""
     accounts = {}
     for mcp_tool in mcp_tools:
-        match = re.fullmatch(r"calendar_(\w+?)_list_events", mcp_tool.name)
+        match = re.fullmatch(r"calendar_(\w+?)_(search_events|list_events)", mcp_tool.name)
         if match:
-            accounts[match.group(1)] = mcp_tool
-
+            accounts.setdefault(match.group(1), {})[match.group(2)] = mcp_tool
+    accounts = {name: pair for name, pair in accounts.items()
+                if "search_events" in pair and "list_events" in pair}
     if not accounts:
         return None
 
@@ -148,8 +153,9 @@ def make_calendar_finder(mcp_tools, max_results=30):
     @tool("calendar_find_event", description=CALENDAR_FINDER_DESCRIPTION)
     def calendar_find_event(query: str) -> str:
         now = datetime.now(timezone.utc)
-        window = {"startTime": iso_second(now - timedelta(days=30)),
-                  "endTime": iso_second(now + timedelta(days=365))}
+        window = {"calendarId": "primary",
+                  "timeMin": iso_second(now - timedelta(days=30)),
+                  "timeMax": iso_second(now + timedelta(days=365))}
         terms = re.findall(r"\w{3,}", query.lower()) or [query]
 
         candidates, seen, errors = [], set(), {}
@@ -161,9 +167,9 @@ def make_calendar_finder(mcp_tools, max_results=30):
                     seen.add(key)
                     candidates.append((account, event))
 
-        def gather(account, list_events, args):
+        def gather(account, tool_, args):
             try:
-                result = list_events.invoke(args)
+                result = tool_.invoke(args)
             except Exception as exc:
                 errors[account] = str(exc)[:150]
                 return
@@ -173,13 +179,13 @@ def make_calendar_finder(mcp_tools, max_results=30):
                 return
             collect(account, events)
 
-        for account, list_events in accounts.items():
+        for account, pair in accounts.items():
             for term in terms:
-                gather(account, list_events, {**window, "fullText": term})
+                gather(account, pair["search_events"], {**window, "query": term})
         if not candidates:
-            listing = {**window, "endTime": iso_second(now + timedelta(days=90))}
-            for account, list_events in accounts.items():
-                gather(account, list_events, listing)
+            listing = {**window, "timeMax": iso_second(now + timedelta(days=90))}
+            for account, pair in accounts.items():
+                gather(account, pair["list_events"], listing)
 
         if not candidates and errors:
             return (f"{TOOL_ERROR} accès aux calendriers impossible :\n"

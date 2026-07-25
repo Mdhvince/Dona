@@ -7,36 +7,79 @@
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
 <body>
-  <main>
-    <header>
-      <h1>Assistant</h1>
-      <div class="reindex">
-        <span id="reindex-status"></span>
-        <button id="new-conversation-button" type="button">Nouvelle conversation</button>
-        <button id="reindex-button" type="button">Re-indexer</button>
+  <div class="app">
+    <aside id="sources-panel">
+      <header class="panel-header">
+        <div class="panel-title">
+          <h2>Sources</h2>
+          <span id="source-count">0 source</span>
+        </div>
+        <button id="collapse-sources" class="icon-button" type="button" title="Réduire le panneau">
+          <span class="glyph-panel"></span>
+        </button>
+      </header>
+
+      <div id="sources-list" hidden>
+        <ul id="sources-items"></ul>
+        <p class="sources-footnote">
+          <span class="glyph-pill"></span>
+          Sources citées dans cette conversation
+        </p>
       </div>
-    </header>
 
-    <details id="reindex-warnings" hidden>
-      <summary></summary>
-      <ul></ul>
-    </details>
+      <div id="sources-empty" class="empty-state">
+        <span class="glyph-doc"></span>
+        <p class="empty-title">Aucune source pour le moment</p>
+        <p class="empty-text">
+          Les sources utilisées par l'assistant apparaîtront ici dès qu'il répond
+          à votre question.
+        </p>
+      </div>
+    </aside>
 
-    <form id="ask-form" autocomplete="off">
-      <input id="question" type="text" placeholder="Pose ta question..." required autofocus>
-      <button id="ask-button" type="submit">Demander</button>
-    </form>
+    <button id="expand-sources" class="icon-button expand-sources" type="button"
+            title="Afficher les sources" hidden>
+      <span class="glyph-panel"></span>
+    </button>
 
-    <p id="rewritten" class="muted" hidden></p>
+    <main>
+      <header class="panel-header">
+        <h2>Discussion</h2>
+        <div class="menu">
+          <span id="reindex-status"></span>
+          <button id="menu-button" class="icon-button" type="button" title="Menu">
+            <span class="glyph-dots"><span></span><span></span><span></span></span>
+          </button>
+          <div id="menu" class="menu-panel" hidden>
+            <button id="new-conversation-button" type="button">Nouvelle conversation</button>
+            <button id="reindex-button" type="button">Re-indexer</button>
+          </div>
+        </div>
+      </header>
 
-    <div id="progress" hidden>
-      <div class="spinner"></div>
-      <ul id="progress-steps"></ul>
-    </div>
-    <p id="answer-warning" hidden></p>
-    <section id="answer" hidden></section>
-    <p id="answer-sources" hidden></p>
-  </main>
+      <details id="reindex-warnings" hidden>
+        <summary></summary>
+        <ul></ul>
+      </details>
+
+      <div id="thread">
+        <div class="thread-inner">
+          <div id="messages"></div>
+          <div id="suggestions"></div>
+        </div>
+      </div>
+
+      <div class="composer">
+        <form id="ask-form" autocomplete="off">
+          <input id="question" type="text" placeholder="Commencez à écrire..." required autofocus>
+          <span id="composer-count"></span>
+          <button id="ask-button" class="send-button" type="submit" title="Envoyer">
+            <span class="glyph-arrow"></span>
+          </button>
+        </form>
+      </div>
+    </main>
+  </div>
 
   <script src="{{ url_for('static', filename='app.js') }}"></script>
 </body>
