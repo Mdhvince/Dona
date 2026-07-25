@@ -61,6 +61,25 @@ pour la détection d'erreurs. Les outils d'écriture (create/update/
 delete-event) sont hors whitelist en attendant un mécanisme de confirmation
 human-in-the-loop.
 
+## Banque (Qonto)
+
+Serveur MCP officiel de Qonto (`https://mcp.qonto.com/mcp`, transport
+http), authentifié par le flow OAuth du protocole MCP - découverte des
+métadonnées, enregistrement dynamique du client, PKCE et rafraîchissement,
+fournis par `OAuthClientProvider` du SDK et branchés via
+`src/mcp_auth.py` (stockage sur disque dans `~/.secrets`, un fichier par
+serveur) :
+
+```bash
+uv run python -m src.mcp_auth qonto   # autorisation unique, liste les outils
+```
+
+Le serveur expose 62 outils dont beaucoup d'écriture (cartes, virements,
+factures) ; la whitelist n'en retient que 7, tous en lecture : solde et
+organisation, transactions, relevés, factures clients et fournisseurs,
+cartes. C'est autant une mesure de sécurité qu'un choix de qualité - un
+modèle local choisit mal parmi 62 outils.
+
 ## Actions à effet de bord
 
 Les outils déclarés en `confirm` dans un bloc `[[mcp]]` (aujourd'hui

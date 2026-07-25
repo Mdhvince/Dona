@@ -659,13 +659,20 @@ a.source-card:hover {
 .radar-progress {
   height: 2px;
   background: rgba(221, 227, 231, 0.07);
+  overflow: hidden;
 }
 
 .radar-progress span {
   display: block;
+  width: 28%;
   height: 100%;
   background: var(--accent);
-  transition: width 0.4s ease;
+  animation: slide 1.6s ease-in-out infinite;
+}
+
+@keyframes slide {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(457%); }
 }
 
 /* --- Suggestions --- */

@@ -263,9 +263,7 @@ function startRadar() {
   detail.className = "radar-detail";
   const progress = document.createElement("div");
   progress.className = "radar-progress";
-  const progressBar = document.createElement("span");
-  progressBar.style.width = "0%";
-  progress.appendChild(progressBar);
+  progress.appendChild(document.createElement("span"));
 
   card.append(head, body, detail, progress);
   radar.append(avatar, card);
@@ -305,11 +303,8 @@ function startRadar() {
     tip.style.top = `${(((ty + 128) / 256) * 100).toFixed(2)}%`;
     tip.style.transform = "translate(-50%, -50%)";
 
-    const seconds = (now - started) / 1000;
-    const shown = Math.floor(seconds);
+    const shown = Math.floor((now - started) / 1000);
     elapsed.textContent = `${Math.floor(shown / 60)}:${String(shown % 60).padStart(2, "0")}`;
-    // Deliberately slow and asymptotic: finishing always beats the bar
-    progressBar.style.width = `${((1 - Math.exp(-seconds / 150)) * 100).toFixed(1)}%`;
     requestAnimationFrame(frame);
   };
   requestAnimationFrame(frame);

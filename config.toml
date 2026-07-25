@@ -71,3 +71,15 @@ description_suffix = "(Compte personnel, ${PERSONAL_EMAIL}.)"
 [mcp.env]
 GOOGLE_OAUTH_CREDENTIALS = "${GOOGLE_OAUTH_CREDENTIALS}"
 GOOGLE_ACCOUNT_MODE = "perso"
+
+[[mcp]]
+name = "qonto"
+transport = "http"
+url = "https://mcp.qonto.com/mcp"
+# The server exposes 62 tools, many of them side-effecting (cards,
+# transfers, invoices): only read-only ones are given to the agent
+tools = ["get_organization", "list_transactions", "get_transaction",
+         "list_statements", "list_client_invoices", "list_supplier_invoices",
+         "list_cards"]
+json_result = true
+description_suffix = "(Compte bancaire professionnel Myelink, lecture seule.)"

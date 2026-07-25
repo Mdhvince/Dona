@@ -106,11 +106,17 @@ def load_mcp_tools(config):
 
     tools = []
     for server in config.get("mcp", []):
-        client = MultiServerMCPClient({server["name"]: {
-            "transport": "stdio",
-            "command": server["command"],
-            "args": server.get("args", []),
-            "env": {**os.environ, **server.get("env", {})}}})
+        if server.get("transport") == "http":
+            from src.mcp_auth import oauth_provider
+            connection = {"transport": "streamable_http",
+                          "url": server["url"],
+                          "auth": oauth_provider(server["name"], server["url"])}
+        else:
+            connection = {"transport": "stdio",
+                          "command": server["command"],
+                          "args": server.get("args", []),
+                          "env": {**os.environ, **server.get("env", {})}}
+        client = MultiServerMCPClient({server["name"]: connection})
         try:
             loaded = asyncio.run(client.get_tools())
         except Exception as exc:
