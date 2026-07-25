@@ -487,6 +487,78 @@ a.source-card:hover {
   color: #e0d9c4;
 }
 
+/* --- Confirmation card (side-effecting tools) --- */
+.confirm-card {
+  border: 1px solid var(--accent);
+  background: var(--card);
+  padding: 16px 18px;
+  animation: riseIn 0.3s ease both;
+}
+
+.confirm-title {
+  font-size: 14.5px;
+  font-weight: 500;
+  color: var(--text-strong);
+  margin-bottom: 12px;
+}
+
+.confirm-args {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 6px 16px;
+  margin: 0 0 16px;
+  font-size: 13.5px;
+}
+
+.confirm-args dt {
+  color: var(--muted);
+}
+
+.confirm-args dd {
+  margin: 0;
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 12.5px;
+  overflow-wrap: anywhere;
+}
+
+.confirm-buttons {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.confirm-buttons button {
+  padding: 9px 16px;
+  border: 1px solid var(--panel-border);
+  background: transparent;
+  color: var(--text-body);
+  font: inherit;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.confirm-buttons button:hover {
+  border-color: var(--muted);
+  color: #fff;
+}
+
+.confirm-approve {
+  border-color: var(--accent) !important;
+  background: rgba(111, 179, 171, 0.14) !important;
+  color: var(--accent) !important;
+}
+
+.confirm-approve:hover {
+  background: rgba(111, 179, 171, 0.24) !important;
+}
+
+.confirm-outcome {
+  text-align: right;
+  font-size: 13px;
+  color: var(--muted);
+}
+
 /* --- Radar (live activity) --- */
 .radar {
   display: flex;

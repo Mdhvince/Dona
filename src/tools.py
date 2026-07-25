@@ -86,6 +86,16 @@ def sync_mcp_tool(mcp_tool, name, description=None, json_result=False,
         args_schema=mcp_tool.args_schema)
 
 
+def confirmed_tool_names(config):
+    """Renamed names of the tools a server declares as side-effecting: the
+    agent may only run them after an explicit confirmation."""
+    names = []
+    for server in config.get("mcp", []):
+        for tool_name in server.get("confirm", []):
+            names.append(f"{server['name']}_{tool_name}".replace("-", "_"))
+    return names
+
+
 def load_mcp_tools(config):
     """Connect every [[mcp]] server from config.toml and return its
     whitelisted tools, renamed <server>_<tool> so the same server can run

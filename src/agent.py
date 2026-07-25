@@ -4,7 +4,8 @@ from datetime import date
 from pathlib import Path
 
 from langchain.agents import create_agent
-from langchain.agents.middleware import ModelRequest, dynamic_prompt, wrap_model_call
+from langchain.agents.middleware import (HumanInTheLoopMiddleware, ModelRequest,
+                                         dynamic_prompt, wrap_model_call)
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
 from src.prompt import SYSTEM_PROMPT
@@ -53,16 +54,22 @@ def fresh_retrieval(request, handler):
     return handler(request.override(messages=conversation_only(request.messages)))
 
 
-def build_agent(retriever, llm, checkpointer=None, extra_tools=()):
+def build_agent(retriever, llm, checkpointer=None, extra_tools=(), confirm_tools=()):
     """Agent over the personal documents RAG plus any extra tools (MCP
     servers: calendar, gmail...). Passing a checkpointer enables multi-turn
     conversations (one thread_id per conversation). No response_format on
     purpose: a constrained output grammar competes with tool calling on some
-    models; the agent cites inline instead (see parse_citations)."""
+    models; the agent cites inline instead (see parse_citations).
+    confirm_tools are side-effecting: the graph interrupts before running
+    them and only resumes on an explicit approval."""
+    middleware = [system_prompt, fresh_retrieval]
+    if confirm_tools:
+        middleware.append(HumanInTheLoopMiddleware(
+            interrupt_on={name: True for name in confirm_tools}))
     return create_agent(
         model=llm,
         tools=[make_rag_tool(retriever), *extra_tools],
-        middleware=[system_prompt, fresh_retrieval],
+        middleware=middleware,
         checkpointer=checkpointer)
 
 

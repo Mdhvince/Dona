@@ -61,6 +61,19 @@ pour la détection d'erreurs. Les outils d'écriture (create/update/
 delete-event) sont hors whitelist en attendant un mécanisme de confirmation
 human-in-the-loop.
 
+## Actions à effet de bord
+
+Les outils déclarés en `confirm` dans un bloc `[[mcp]]` (aujourd'hui
+`create-event` sur les deux agendas) ne s'exécutent jamais seuls : le
+`HumanInTheLoopMiddleware` interrompt le graphe avant l'appel, l'état
+interrompu est persisté par le checkpointer, et la reprise se fait sur
+approbation explicite (`POST /confirm`). La carte de confirmation affiche
+les **arguments réels** de l'appel, jamais la paraphrase du modèle : ce qui
+est approuvé est ce qui sera envoyé. Toute décision autre qu'une
+approbation explicite est un refus, l'agent en est informé et poursuit sa
+réponse. Les autres écritures (modification, suppression) restent hors
+whitelist.
+
 ## Fraîcheur des recherches
 
 Un middleware (`fresh_retrieval`) réécrit l'historique avant chaque appel

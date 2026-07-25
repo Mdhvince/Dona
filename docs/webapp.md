@@ -30,6 +30,12 @@ reconstruit après chaque ré-indexation.
     listant les outils en échec) : un échec d'accès n'est jamais présenté
     comme une donnée ("agenda vide"...), et la détection vient du code
     (sentinelle de la couche outils), pas du modèle.
+- `POST /confirm` (`{thread_id, approved}`) : reprend un run interrompu sur
+  un outil à effet de bord et poursuit le même flux NDJSON. Le flux de
+  `/ask` s'arrête sur une ligne `{confirm: [{tool, args}]}` quand une
+  approbation est requise ; le front affiche alors une carte listant les
+  arguments réels de l'appel, avec Confirmer / Annuler (toute autre issue
+  vaut refus).
 - `GET /source?path=...` : sert un document indexé dans le navigateur
   (les liens file:// sont bloqués sur une page HTTP), restreint aux racines
   indexées (403 sinon).

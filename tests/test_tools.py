@@ -1,12 +1,11 @@
 import json
+import re
 
 from langchain_core.documents import Document
 from pydantic import BaseModel
 
-import re
-
-from src.tools import (make_calendar_finder, make_rag_tool, resolve_default,
-                       sync_mcp_tool)
+from src.tools import (confirmed_tool_names, make_calendar_finder, make_rag_tool,
+                       resolve_default, sync_mcp_tool)
 
 
 class FakeRetriever:
@@ -197,6 +196,16 @@ class FakeOptionalTool:
 
     async def ainvoke(self, kwargs):
         return f"echo:{kwargs.get('message')}"
+
+
+def test_confirmed_tool_names_uses_renamed_tools():
+    config = {"mcp": [
+        {"name": "calendar_pro", "confirm": ["create-event"]},
+        {"name": "calendar_perso", "confirm": ["create-event"]},
+        {"name": "readonly_server"},
+    ]}
+    assert confirmed_tool_names(config) == ["calendar_pro_create_event",
+                                            "calendar_perso_create_event"]
 
 
 ISO_SECONDS = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z")

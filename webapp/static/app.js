@@ -343,31 +343,93 @@ function startRadar() {
   };
 }
 
-async function ask(question) {
-  if (sendButton.disabled) return;
+// Confirmation card for a side-effecting tool: shows the arguments that
+// would really be sent, never the model's paraphrase
+const ARG_LABELS = {
+  summary: "Titre", start: "Début", end: "Fin", location: "Lieu",
+  description: "Description", attendees: "Invités", timeZone: "Fuseau",
+  recurrence: "Récurrence", calendarId: "Calendrier",
+};
 
-  suggestionsEl.textContent = "";
-  questionInput.value = "";
-  addUserMessage(question);
+const ACCOUNT_LABELS = { calendar_pro: "Agenda pro", calendar_perso: "Agenda perso" };
+
+function showConfirmation(actions) {
+  const card = document.createElement("div");
+  card.className = "confirm-card";
+
+  const title = document.createElement("div");
+  title.className = "confirm-title";
+  const account = Object.entries(ACCOUNT_LABELS)
+    .find(([prefix]) => actions[0].tool.startsWith(prefix));
+  title.textContent = account
+    ? `Créer cet événement — ${account[1]}`
+    : `Confirmer : ${actions[0].tool}`;
+  card.appendChild(title);
+
+  const list = document.createElement("dl");
+  list.className = "confirm-args";
+  for (const action of actions) {
+    for (const [key, value] of Object.entries(action.args || {})) {
+      if (key === "account" || value === null || value === "") continue;
+      const term = document.createElement("dt");
+      term.textContent = ARG_LABELS[key] || key;
+      const def = document.createElement("dd");
+      def.textContent = typeof value === "object" ? JSON.stringify(value) : String(value);
+      list.append(term, def);
+    }
+  }
+  card.appendChild(list);
+
+  const buttons = document.createElement("div");
+  buttons.className = "confirm-buttons";
+  const approve = document.createElement("button");
+  approve.type = "button";
+  approve.className = "confirm-approve";
+  approve.textContent = "Confirmer la création";
+  const reject = document.createElement("button");
+  reject.type = "button";
+  reject.textContent = "Annuler";
+  buttons.append(reject, approve);
+  card.appendChild(buttons);
+
+  messagesEl.appendChild(card);
+  scrollDown();
+
+  const decide = (approved) => {
+    buttons.remove();
+    const outcome = document.createElement("div");
+    outcome.className = "confirm-outcome";
+    outcome.textContent = approved ? "Création confirmée" : "Création annulée";
+    card.appendChild(outcome);
+    run("/confirm", { approved, thread_id: threadId });
+  };
+  approve.addEventListener("click", () => decide(true));
+  reject.addEventListener("click", () => decide(false));
+}
+
+// Shared runner for a new question and for resuming after a confirmation:
+// both consume the same NDJSON protocol
+async function run(url, payload) {
+  if (sendButton.disabled) return;
   const radar = startRadar();
   sendButton.disabled = true;
 
   try {
-    const res = await fetch("/ask", {
+    const res = await fetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ question, thread_id: threadId }),
+      body: JSON.stringify(payload),
     });
     if (!res.ok) {
       const failure = await res.json().catch(() => ({}));
       throw new Error(failure.error || res.statusText);
     }
 
-    // NDJSON stream: activity events as the agent works, then the answer
     const reader = res.body.getReader();
     const decoder = new TextDecoder();
     let buffer = "";
     let data = null;
+    let confirmation = null;
     for (;;) {
       const { done, value } = await reader.read();
       if (done) break;
@@ -381,6 +443,8 @@ async function ask(question) {
         if (event.error) throw new Error(event.error);
         if (event.response !== undefined) {
           data = event;
+        } else if (event.confirm) {
+          confirmation = event.confirm;
         } else if (event.phase) {
           const render = PHASES[event.phase];
           if (render) radar.update(...render(event));
@@ -395,9 +459,14 @@ async function ask(question) {
         }
       }
     }
-    if (!data) throw new Error("réponse incomplète");
 
     radar.remove();
+
+    if (confirmation) {
+      showConfirmation(confirmation);
+      return;
+    }
+    if (!data) throw new Error("réponse incomplète");
 
     if (data.status === "error") {
       addBotMessage(
@@ -425,6 +494,14 @@ async function ask(question) {
     questionInput.focus();
   }
 }
+
+function ask(question) {
+  suggestionsEl.textContent = "";
+  questionInput.value = "";
+  addUserMessage(question);
+  return run("/ask", { question, thread_id: threadId });
+}
+
 
 function startConversation() {
   messagesEl.textContent = "";
