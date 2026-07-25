@@ -12,7 +12,7 @@ wheels/
 # Project related files
 .env
 vectordb/
-conversations.db
+conversations.db*
 
 # IDE
 .vscode/

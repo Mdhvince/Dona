@@ -2,7 +2,7 @@ import tomllib
 from pathlib import Path
 
 from langchain_ollama import ChatOllama
-from langchain_openai import ChatOpenAI, OpenAIEmbeddings
+from langchain_openai import OpenAIEmbeddings
 
 CONFIG_PATH = Path(__file__).parent.parent / "config.toml"
 
@@ -12,10 +12,10 @@ def load_config():
         return tomllib.load(f)
 
 
-def llm_client(config, api_key="ollama"):
-    """Keys in [llm] (model, base_url, temperature, max_tokens...) map
-    directly to ChatOpenAI arguments and are passed through as-is."""
-    return ChatOpenAI(api_key=api_key, **config["llm"])
+def llm_client(config):
+    """Keys in [llm] (model, base_url, temperature, num_predict, reasoning...)
+    map directly to ChatOllama arguments and are passed through as-is."""
+    return ChatOllama(**config["llm"])
 
 
 def vlm_client(config):

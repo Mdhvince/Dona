@@ -3,29 +3,26 @@ from pathlib import Path
 
 from langchain.agents import create_agent
 from langchain.agents.middleware import ModelRequest, dynamic_prompt
-from langchain.agents.structured_output import ProviderStrategy
 from langchain_core.messages import HumanMessage, ToolMessage
 from pydantic import BaseModel, Field
 
-from src.prompt import SYSTEM_PROMPT
+from src.prompt import CITATION_PROMPT, SYSTEM_PROMPT
 from src.tools import make_rag_tool
 
 
 class CitedSource(BaseModel):
-    file: str = Field(description="Nom exact du fichier, tel qu'affiché dans l'extrait")
-    page: int | str | None = Field(default=None, description="Page de l'extrait utilisé")
+    file: str = Field(description="Nom exact du fichier, tel qu'affiché dans la liste")
+    page: int | str | None = Field(default=None, description="Page du document utilisé")
 
 
-class AgentAnswer(BaseModel):
-    """Final structured output; field descriptions are French prompt content.
-    sources tolerates plain strings so an off-schema citation (a tool name,
-    typically) degrades into a skipped entry instead of failing the whole
-    answer at validation time."""
-    response: str = Field(description="La réponse en Markdown, sans mention des sources")
-    sources: list[CitedSource | str] = Field(
+class CitedSources(BaseModel):
+    """Structured output of the citation extraction; field descriptions are
+    French prompt content. Strict schema on purpose: the extraction call has
+    no competing tool-calling concern, and a lax union lets models cite as
+    plain strings that validation would then drop."""
+    sources: list[CitedSource] = Field(
         default_factory=list,
-        description="Extraits de documents réellement utilisés pour répondre, "
-                    "vide si la réponse ne s'appuie sur aucun document")
+        description="Documents réellement utilisés par la réponse, vide si aucun")
 
 
 @dynamic_prompt
@@ -38,13 +35,32 @@ def system_prompt(request: ModelRequest) -> str:
 def build_agent(retriever, llm, checkpointer=None, extra_tools=()):
     """Agent over the personal documents RAG plus any extra tools (MCP
     servers: calendar, gmail...). Passing a checkpointer enables multi-turn
-    conversations (one thread_id per conversation)."""
+    conversations (one thread_id per conversation). No response_format on
+    purpose: a constrained output grammar competes with tool calling on some
+    models; citations are extracted afterwards by extract_citations()."""
     return create_agent(
         model=llm,
         tools=[make_rag_tool(retriever), *extra_tools],
         middleware=[system_prompt],
-        response_format=ProviderStrategy(AgentAnswer),
         checkpointer=checkpointer)
+
+
+def extract_citations(llm, answer_text, retrieved):
+    """Post-hoc structured call, decoupled from the agent loop so it stays
+    model-agnostic: given the final answer and the retrieved documents, the
+    model ticks the ones the answer actually uses; validate_citations then
+    drops anything that does not match a really retrieved document. Returns
+    [] when there is nothing to cite or the extraction fails."""
+    if not retrieved or not answer_text:
+        return []
+    documents = "\n".join(f"- {Path(info['path']).name}, page {info['page']}"
+                          for info in retrieved)
+    try:
+        result = llm.with_structured_output(CitedSources).invoke(
+            CITATION_PROMPT.format(answer=answer_text, documents=documents))
+    except Exception:
+        return []
+    return validate_citations(result.sources, retrieved)
 
 
 def current_turn(messages):

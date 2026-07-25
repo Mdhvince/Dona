@@ -1,10 +1,13 @@
 import asyncio
+import json
 import os
+import re
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from langchain_core.tools import StructuredTool, tool
 
-from src.prompt import RAG_TOOL_DESCRIPTION
+from src.prompt import CALENDAR_FINDER_DESCRIPTION, RAG_TOOL_DESCRIPTION
 
 
 def format_context(docs):
@@ -74,6 +77,89 @@ def load_mcp_tools(config):
         tools.extend(selected)
         print(f"MCP {server['name']} : {len(selected)} outil(s) chargé(s)")
     return tools
+
+
+def _calendar_events(result):
+    """Events from a calendar MCP tool result (a list of content blocks
+    whose text is JSON); empty list on anything unexpected."""
+    try:
+        if isinstance(result, list):
+            result = result[0].get("text", "")
+        return json.loads(result).get("events", [])
+    except Exception:
+        return []
+
+
+def _event_line(account, event):
+    start = event.get("start", {})
+    end = event.get("end", {})
+    return (f"- [{account}] {event.get('summary', '(sans titre)')} | "
+            f"{start.get('dateTime', start.get('date', '?'))} -> "
+            f"{end.get('dateTime', end.get('date', '?'))}")
+
+
+def make_calendar_finder(mcp_tools, max_results=30):
+    """Composite tool encoding the event-search strategy in code instead of
+    relying on model discipline: search every account with each
+    discriminating term, fall back to a wide listing when searches are
+    literal misses, and hand the deduplicated candidates back to the model,
+    whose only job is to recognize the right one. Returns None when no
+    calendar account is available."""
+    accounts = {}
+    for mcp_tool in mcp_tools:
+        match = re.fullmatch(r"calendar_(\w+?)_(search_events|list_events)", mcp_tool.name)
+        if match:
+            accounts.setdefault(match.group(1), {})[match.group(2)] = mcp_tool
+    accounts = {name: tools for name, tools in accounts.items()
+                if "search_events" in tools and "list_events" in tools}
+    if not accounts:
+        return None
+
+    def iso_second(moment):
+        """The calendar MCP server rejects fractional seconds."""
+        return moment.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    @tool("calendar_find_event", description=CALENDAR_FINDER_DESCRIPTION)
+    def calendar_find_event(query: str) -> str:
+        now = datetime.now(timezone.utc)
+        window = {"calendarId": "primary",
+                  "timeMin": iso_second(now - timedelta(days=30)),
+                  "timeMax": iso_second(now + timedelta(days=365))}
+        terms = re.findall(r"\w{3,}", query.lower()) or [query]
+
+        candidates, seen = [], set()
+
+        def collect(account, events):
+            for event in events:
+                key = event.get("id") or (event.get("summary"), str(event.get("start")))
+                if key not in seen:
+                    seen.add(key)
+                    candidates.append((account, event))
+
+        for account, tools in accounts.items():
+            for term in terms:
+                try:
+                    collect(account, _calendar_events(
+                        tools["search_events"].invoke({**window, "query": term})))
+                except Exception:
+                    continue
+        if not candidates:
+            listing = {**window, "timeMax": iso_second(now + timedelta(days=90))}
+            for account, tools in accounts.items():
+                try:
+                    collect(account, _calendar_events(tools["list_events"].invoke(listing)))
+                except Exception:
+                    continue
+
+        if not candidates:
+            return ("Aucun événement trouvé sur la période (comptes : "
+                    + ", ".join(accounts) + ").")
+        lines = [_event_line(account, event) for account, event in candidates[:max_results]]
+        if len(candidates) > max_results:
+            lines.append(f"(+{len(candidates) - max_results} autres)")
+        return "Événements candidats :\n" + "\n".join(lines)
+
+    return calendar_find_event
 
 
 def make_rag_tool(retriever):

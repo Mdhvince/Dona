@@ -1,5 +1,6 @@
 import json
 import threading
+import time
 from pathlib import Path
 
 import nh3
@@ -13,8 +14,8 @@ import sqlite3
 from langgraph.checkpoint.sqlite import SqliteSaver
 
 from src.agent import (build_agent, collect_queries, collect_sources,
-                       current_turn, validate_citations)
-from src.tools import load_mcp_tools
+                       current_turn, extract_citations)
+from src.tools import load_mcp_tools, make_calendar_finder
 from src.config import load_config, llm_client, embedding_client, vlm_client
 from src.ingest import DOCS_DIRS, sync
 from src.retrieval import HybridRetriever
@@ -38,6 +39,8 @@ checkpointer = SqliteSaver(sqlite3.connect(str(ROOT / "conversations.db"),
                                            check_same_thread=False))
 # Loaded once at startup: reindex rebuilds reuse the same MCP tools
 mcp_tools = load_mcp_tools(config)
+calendar_finder = make_calendar_finder(mcp_tools)
+extra_tools = mcp_tools + ([calendar_finder] if calendar_finder else [])
 
 
 def build_rag_agent():
@@ -49,7 +52,7 @@ def build_rag_agent():
         agent = None
         return
     retriever = HybridRetriever.from_vectordb(vectordb, **config["retriever"])
-    agent = build_agent(retriever, chat_llm, checkpointer, extra_tools=mcp_tools)
+    agent = build_agent(retriever, chat_llm, checkpointer, extra_tools=extra_tools)
 
 
 build_rag_agent()
@@ -94,8 +97,10 @@ def index():
 
 @app.route("/ask", methods=["POST"])
 def ask():
-    """NDJSON stream: one line per new batch of search queries as the agent
-    works, then a final line with the full answer payload."""
+    """NDJSON stream over stream_mode=["messages", "values"]: throttled
+    {phase, tokens} heartbeats from the token stream (thinking, tool prep,
+    answer writing), {tool, args} and {retrieved} step events from the state
+    stream, then a final line with the full answer payload."""
     payload = request.get_json(silent=True) or {}
     question = payload.get("question", "").strip()
     thread_id = payload.get("thread_id", "").strip() or "default"
@@ -108,13 +113,43 @@ def ask():
         try:
             run_config = {"configurable": {"thread_id": thread_id}}
             state, seen_calls, seen_docs = None, set(), 0
-            for state in agent.stream({"messages": [{"role": "user", "content": question}]},
-                                      config=run_config, stream_mode="values"):
+            thinking_tokens = answer_tokens = 0
+            last_beat = 0.0
+
+            def heartbeat(payload):
+                nonlocal last_beat
+                if time.monotonic() - last_beat < 0.4:
+                    return None
+                last_beat = time.monotonic()
+                return json.dumps(payload) + "\n"
+
+            for mode, data in agent.stream({"messages": [{"role": "user", "content": question}]},
+                                           config=run_config,
+                                           stream_mode=["messages", "values"]):
+                if mode == "messages":
+                    chunk, _ = data
+                    beat = None
+                    reasoning = (getattr(chunk, "additional_kwargs", None) or {}).get("reasoning_content")
+                    if reasoning:
+                        thinking_tokens += 1
+                        beat = heartbeat({"phase": "thinking",
+                                          "tokens": thinking_tokens})
+                    elif getattr(chunk, "tool_call_chunks", None):
+                        beat = heartbeat({"phase": "tool_prep"})
+                    elif getattr(chunk, "content", None):
+                        answer_tokens += 1
+                        beat = heartbeat({"phase": "answer", "tokens": answer_tokens})
+                    if beat:
+                        yield beat
+                    continue
+
+                state = data
                 turn = current_turn(state["messages"])
                 for message in turn:
                     for call in getattr(message, "tool_calls", None) or []:
                         if call["id"] not in seen_calls:
                             seen_calls.add(call["id"])
+                            thinking_tokens = 0
                             yield json.dumps({"tool": call["name"], "args": call["args"]}) + "\n"
                 docs = len(collect_sources(turn))
                 if docs > seen_docs:
@@ -123,16 +158,10 @@ def ask():
 
             turn = current_turn(state["messages"])
             retrieved = collect_sources(turn)
-            structured = state.get("structured_response")
-            if structured is not None:
-                text = structured.response
-                # Validated against the whole thread: a follow-up answered from
-                # memory may legitimately cite an earlier turn's document
-                sources = validate_citations(structured.sources,
-                                             collect_sources(state["messages"]))
-            else:
-                text = turn[-1].content
-                sources = retrieved
+            text = turn[-1].content
+            # Candidates from the whole thread: a follow-up answered from
+            # memory may legitimately cite an earlier turn's document
+            sources = extract_citations(chat_llm, text, collect_sources(state["messages"]))
             # nh3 strips raw HTML that python-markdown lets through (XSS via corpus)
             yield json.dumps({
                 "response": nh3.clean(markdown(text, extensions=["tables"])),

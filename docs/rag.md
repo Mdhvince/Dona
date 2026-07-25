@@ -157,31 +157,38 @@ Le RAG est un outil d'un agent LangGraph (`create_agent`, LangChain 1.x) :
   renvoie tout l'historique (le fil d'activité et les compteurs ne
   concernent que le tour en cours ; les citations restent validées contre
   tout le thread).
-- **Citations** : l'agent termine par une sortie structurée
-  (`ProviderStrategy` : le schéma `{response, sources}` est imposé par l'API,
-  pas laissé au choix du modèle - `ToolStrategy` a été testé et gpt-oss
-  ignorait l'outil de réponse finale). Il y déclare les extraits réellement
-  utilisés par (nom de fichier, page) ; `validate_citations` confronte
-  chaque citation aux artifacts des `ToolMessage` (documents réellement
-  récupérés) : une citation inventée est écartée, et le chemin affiché vient
-  toujours de l'artifact, jamais du LLM. L'UI montre les sources citées puis
-  le nombre total de documents consultés ; `collect_queries` expose les
-  requêtes envoyées. La réponse HTML est assainie par `nh3` avant envoi au
-  front (python-markdown laisse passer le HTML brut : vecteur XSS via un
+- **Citations** : découplées de la boucle d'agent, par choix d'architecture
+  model-agnostic. Imposer un schéma de sortie pendant la boucle entre en
+  conflit avec le tool calling selon les modèles (`ProviderStrategy` :
+  grammaire qui empêche qwen3 d'appeler les outils ; `ToolStrategy` : outil
+  final que gpt-oss ignore). L'agent répond donc librement, puis
+  `extract_citations` fait un second appel court et structuré (sans outils,
+  donc sans conflit) : le modèle coche, parmi les documents réellement
+  récupérés (artifacts des `ToolMessage`), ceux que la réponse utilise -
+  schéma strict (nom de fichier, page). `validate_citations` écarte toute
+  citation ne correspondant pas à un document récupéré ; le chemin affiché
+  vient toujours de l'artifact, jamais du LLM. Aucun document récupéré
+  (agenda, conversation) = pas d'appel d'extraction. L'UI montre les sources
+  citées puis le nombre de documents consultés ; `collect_queries` expose
+  les requêtes envoyées. La réponse HTML est assainie par `nh3` avant envoi
+  au front (python-markdown laisse passer le HTML brut : vecteur XSS via un
   document indexé malveillant).
 
 ## Webapp (`webapp/`, convention flask.md)
 
 - `GET /` : page unique (question, réponse, sources).
-- `POST /ask` (`{question, thread_id}`) : flux NDJSON
-  (`agent.stream(stream_mode="values")`). Le `thread_id` vit dans le
-  localStorage du navigateur ; le bouton "Nouvelle conversation" en génère
-  un neuf et vide l'écran. Pendant
-  l'attente, une ligne `{tool, args}` par appel d'outil de l'agent (affichée
-  "[Calling rag_medhys_files]: ..." à droite du spinner) et une ligne
-  `{retrieved}` quand des extraits arrivent ; puis une ligne finale avec la
-  réponse HTML (Markdown converti et assaini côté serveur), les sources
-  citées [{name, page, url}] et le nombre de documents consultés.
+- `POST /ask` (`{question, thread_id}`) : flux NDJSON sur
+  `agent.stream(stream_mode=["messages", "values"])`. Le `thread_id` vit
+  dans le localStorage du navigateur ; le bouton "Nouvelle conversation" en
+  génère un neuf et vide l'écran. Pendant l'attente, le fil d'activité (à
+  droite du spinner) combine deux granularités : des battements `{phase,
+  tokens}` throttlés issus du flux de tokens (réflexion en cours avec
+  compteur, préparation d'appel d'outil, rédaction de la réponse - le
+  contenu du raisonnement n'est jamais envoyé au navigateur, seul son
+  avancement), et des événements d'étape `{tool, args}` ("[Calling ...]")
+  et `{retrieved}` issus du flux d'états. Une ligne finale porte la réponse HTML (Markdown
+  converti et assaini côté serveur), les sources citées [{name, page, url}]
+  et le nombre de documents consultés.
 - `GET /source?path=...` : sert le document (les liens file:// sont bloqués
   en HTTP), restreint aux racines indexées. Les sources s'affichent en
   liste compacte muted sous la réponse ("Sources : avis_2024.pdf, p.2 ...") ;

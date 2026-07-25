@@ -25,11 +25,29 @@ function resetInteraction() {
   rewrittenEl.textContent = "";
 }
 
+let liveStep = null;
+
 function addProgressStep(text) {
   const step = document.createElement("li");
   step.textContent = text;
   progressSteps.appendChild(step);
+  liveStep = null;
 }
+
+// Single mutating line for the heartbeat phases; discrete steps stay appended
+function setLiveStep(text) {
+  if (!liveStep) {
+    liveStep = document.createElement("li");
+    progressSteps.appendChild(liveStep);
+  }
+  liveStep.textContent = text;
+}
+
+const PHASES = {
+  thinking: (event) => `Réflexion... (${event.tokens} tokens)`,
+  tool_prep: () => "Préparation d'un appel d'outil...",
+  answer: (event) => `Rédaction de la réponse... (${event.tokens} tokens)`,
+};
 
 function showQueries(queries) {
   if (!queries || queries.length === 0) return;
@@ -68,6 +86,7 @@ form.addEventListener("submit", async (event) => {
 
   resetInteraction();
   progressSteps.textContent = "";
+  liveStep = null;
   progress.hidden = false;
   button.disabled = true;
 
@@ -100,11 +119,14 @@ form.addEventListener("submit", async (event) => {
         if (event.error) throw new Error(event.error);
         if (event.response !== undefined) {
           data = event;
+        } else if (event.phase) {
+          const render = PHASES[event.phase];
+          if (render) setLiveStep(render(event));
         } else if (event.tool) {
           const args = Object.values(event.args || {}).flat().join(" · ");
           addProgressStep(`[Calling ${event.tool}]: ${args}`);
         } else if (event.retrieved) {
-          addProgressStep(`${event.retrieved} extraits récupérés, rédaction de la réponse...`);
+          addProgressStep(`${event.retrieved} extraits récupérés`);
         }
       }
     }

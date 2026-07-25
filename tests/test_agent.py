@@ -1,7 +1,23 @@
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
-from src.agent import (CitedSource, collect_queries, collect_sources,
-                       current_turn, validate_citations)
+from src.agent import (CitedSource, CitedSources, collect_queries, collect_sources,
+                       current_turn, extract_citations, validate_citations)
+
+
+class FakeExtractorLLM:
+    def __init__(self, sources=None, error=False):
+        self.sources = sources or []
+        self.error = error
+        self.prompts = []
+
+    def with_structured_output(self, schema):
+        return self
+
+    def invoke(self, prompt):
+        self.prompts.append(prompt)
+        if self.error:
+            raise RuntimeError("llm down")
+        return CitedSources(sources=self.sources)
 
 A24 = {"path": "/tmp/avis_2024.pdf", "page": "2"}
 RIB = {"path": "/tmp/rib.pdf", "page": None}
@@ -58,6 +74,23 @@ def test_validate_citations_handles_pageless_and_dedup():
 def test_validate_citations_skips_plain_string_entries():
     cited = ["calendar_perso_list_events", CitedSource(file="rib.pdf")]
     assert validate_citations(cited, [A24, RIB]) == [RIB]
+
+
+def test_extract_citations_validates_against_retrieved():
+    llm = FakeExtractorLLM([CitedSource(file="avis_2024.pdf", page=2),
+                            CitedSource(file="invente.pdf", page=1)])
+    assert extract_citations(llm, "réponse", [A24, RIB]) == [A24]
+    assert "avis_2024.pdf" in llm.prompts[0]
+
+
+def test_extract_citations_skips_the_call_without_candidates():
+    llm = FakeExtractorLLM()
+    assert extract_citations(llm, "réponse", []) == []
+    assert llm.prompts == []
+
+
+def test_extract_citations_survives_llm_failure():
+    assert extract_citations(FakeExtractorLLM(error=True), "réponse", [A24]) == []
 
 
 def test_current_turn_slices_from_last_human_message():
