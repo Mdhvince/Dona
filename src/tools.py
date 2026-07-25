@@ -4,6 +4,7 @@ import os
 import re
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from uuid import uuid4
 
 from langchain_core.tools import StructuredTool, tool
 
@@ -14,22 +15,43 @@ from src.prompt import CALENDAR_FINDER_DESCRIPTION, RAG_TOOL_DESCRIPTION
 TOOL_ERROR = "[TOOL_ERROR]"
 
 
-def format_context(docs):
-    """Number each chunk and name its file so the agent can tell documents
-    (and years) apart."""
+def format_context(docs, chunk_ids):
+    """Tag each chunk with the marker the agent cites it by, and name its
+    file so it can tell documents (and years) apart."""
     lines = []
-    for i, d in enumerate(docs, 1):
+    for chunk_id, d in zip(chunk_ids, docs):
         source = d.metadata.get("source")
         name = Path(source).name if source else "?"
         page = d.metadata.get("page_label", d.metadata.get("page", "?"))
-        lines.append(f"[{i}] ({name}, page {page}) {d.page_content}")
+        lines.append(f"[{chunk_id}] ({name}, page {page}) {d.page_content}")
     return "\n\n".join(lines)
 
 
-def _source_of(doc):
+def _source_of(doc, chunk_id):
     page = doc.metadata.get("page_label", doc.metadata.get("page"))
-    return {"path": doc.metadata.get("source"),
+    return {"id": chunk_id,
+            "path": doc.metadata.get("source"),
             "page": None if page is None else str(page)}
+
+
+_RELATIVE_TIME = re.compile(r"@now(?:([+-])(\d+)([dh]))?$")
+
+
+def resolve_default(value):
+    """Config defaults are static, but time windows are not: "@now-30d" and
+    "@now+365d" resolve at call time to ISO-8601 seconds (the calendar
+    server rejects fractional seconds)."""
+    if not isinstance(value, str):
+        return value
+    match = _RELATIVE_TIME.fullmatch(value)
+    if not match:
+        return value
+    moment = datetime.now(timezone.utc)
+    sign, amount, unit = match.groups()
+    if amount:
+        delta = timedelta(days=int(amount)) if unit == "d" else timedelta(hours=int(amount))
+        moment = moment - delta if sign == "-" else moment + delta
+    return moment.strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def sync_mcp_tool(mcp_tool, name, description=None, json_result=False,
@@ -46,7 +68,7 @@ def sync_mcp_tool(mcp_tool, name, description=None, json_result=False,
     def run(**kwargs):
         for key, value in (default_args or {}).items():
             if kwargs.get(key) is None:
-                kwargs[key] = value
+                kwargs[key] = resolve_default(value)
         kwargs.update(fixed_args or {})
         try:
             result = asyncio.run(mcp_tool.ainvoke(kwargs))
@@ -217,6 +239,10 @@ def make_rag_tool(retriever):
         docs = retriever.search(queries)
         if not docs:
             return "Aucun extrait trouvé pour ces requêtes.", []
-        return format_context(docs), [_source_of(doc) for doc in docs]
+        # Random ids rather than 1..n: markers must stay unique across the
+        # several tool calls of a single turn for citations to resolve
+        chunk_ids = [uuid4().hex[:4] for _ in docs]
+        return (format_context(docs, chunk_ids),
+                [_source_of(doc, chunk_id) for doc, chunk_id in zip(docs, chunk_ids)])
 
     return rag_medhys_files

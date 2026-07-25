@@ -52,10 +52,26 @@ token du compte (créé via `npx @cocal/google-calendar-mcp auth <compte>`,
 stocké dans `~/.config/google-calendar-mcp`, client OAuth "Desktop" dans
 `~/.secrets/google-oauth.json`) et `fixed_args` épingle le paramètre
 `account` de chaque outil : le modèle ne peut pas interroger un autre
-compte que celui de l'instance. `json_result = true` déclare le contrat de
-payload pour la détection d'erreurs. Les outils d'écriture (create/update/
+compte que celui de l'instance. `default_args` comble les paramètres que le
+serveur exige mais que son schéma présente comme optionnels - `calendarId`
+et la fenêtre temporelle (`timeMin`/`timeMax`, écrits `@now-30d` /
+`@now+365d` et résolus à l'appel) : sans eux, un appel sans fenêtre est
+rejeté par le serveur. `json_result = true` déclare le contrat de payload
+pour la détection d'erreurs. Les outils d'écriture (create/update/
 delete-event) sont hors whitelist en attendant un mécanisme de confirmation
 human-in-the-loop.
+
+## Fraîcheur des recherches
+
+Un middleware (`fresh_retrieval`) réécrit l'historique avant chaque appel
+modèle : les tours précédents ne gardent que leur conversation (questions et
+réponses), leurs appels d'outils et extraits sont retirés, le tour en cours
+reste intact. Sans lui, le modèle voit les extraits déjà récupérés, estime
+son contexte suffisant et ne relance pas de recherche - jusqu'à répondre
+"je n'ai pas trouvé" sur un document qu'il n'a jamais cherché. Les appels
+d'outils passés sont retirés avec leurs résultats (un appel orphelin est
+rejeté par certains fournisseurs). Chaque question déclenche donc sa propre
+recherche, et le fil reste compréhensible via le texte des réponses.
 
 ## Conversation
 
@@ -68,12 +84,18 @@ tour courant, le checkpointer renvoyant tout l'historique.
 
 ## Citations
 
-La sortie structurée est découplée de la boucle d'agent : une grammaire de
-sortie imposée pendant la boucle entre en conflit avec le tool calling
-selon les modèles. L'agent répond librement, puis `extract_citations` fait
-un second appel court et structuré (sans outils) : le modèle coche, parmi
-les documents réellement récupérés (artifacts), ceux que la réponse
-utilise - schéma strict (nom de fichier, page). `validate_citations` écarte
-toute citation ne correspondant pas à un document récupéré ; le chemin
-affiché vient toujours de l'artifact, jamais du LLM. Aucun document
-récupéré = pas d'appel d'extraction.
+Citation en ligne, résolue en code. Chaque extrait rendu par l'outil RAG
+porte un marqueur unique (`[3f2a]`, id aléatoire : les marqueurs doivent
+rester uniques entre les plusieurs appels d'outil d'un même tour), présent
+aussi dans l'artifact du `ToolMessage`. Le prompt demande à l'agent de
+recopier le marqueur juste après l'information qui en vient ;
+`parse_citations` les retrouve dans la réponse, les résout en sources via
+les artifacts et les retire du texte affiché. Entièrement déterministe : le
+modèle qui cite est celui qui a lu les extraits, et un marqueur ne
+correspondant à aucun extrait récupéré est écarté.
+
+Aucune grammaire de sortie n'est imposée pendant la boucle d'agent : elle
+entre en conflit avec le tool calling selon les modèles. Les sources
+affichées portent un label unique (nom de fichier, plus le dossier parent
+quand plusieurs fichiers partagent ce nom - les documents comptables se
+répètent d'un exercice à l'autre).

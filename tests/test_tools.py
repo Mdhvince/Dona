@@ -3,7 +3,10 @@ import json
 from langchain_core.documents import Document
 from pydantic import BaseModel
 
-from src.tools import make_calendar_finder, make_rag_tool, sync_mcp_tool
+import re
+
+from src.tools import (make_calendar_finder, make_rag_tool, resolve_default,
+                       sync_mcp_tool)
 
 
 class FakeRetriever:
@@ -27,11 +30,20 @@ def call(tool_obj, queries):
                             "name": "rag_medhys_files", "args": {"queries": queries}})
 
 
-def test_tool_returns_formatted_content_and_sources_artifact():
+def test_tool_tags_each_chunk_with_the_marker_of_its_artifact():
     message = call(make_rag_tool(FakeRetriever(DOCS)), ["avis imposition 2024"])
-    assert "[1] (avis_2024.pdf, page 2) solde 9570" in message.content
-    assert message.artifact == [{"path": "/tmp/avis_2024.pdf", "page": "2"},
-                                {"path": "/tmp/rib.pdf", "page": None}]
+    first, second = message.artifact
+    assert f"[{first['id']}] (avis_2024.pdf, page 2) solde 9570" in message.content
+    assert f"[{second['id']}] (rib.pdf, page ?) iban" in message.content
+    assert (first["path"], first["page"]) == ("/tmp/avis_2024.pdf", "2")
+    assert (second["path"], second["page"]) == ("/tmp/rib.pdf", None)
+
+
+def test_tool_markers_are_unique_across_calls():
+    rag = make_rag_tool(FakeRetriever(DOCS))
+    first = {info["id"] for info in call(rag, ["a"]).artifact}
+    second = {info["id"] for info in call(rag, ["b"]).artifact}
+    assert len(first) == 2 and not (first & second)
 
 
 def test_tool_passes_all_queries_to_retriever():
@@ -185,6 +197,22 @@ class FakeOptionalTool:
 
     async def ainvoke(self, kwargs):
         return f"echo:{kwargs.get('message')}"
+
+
+ISO_SECONDS = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z")
+
+
+def test_resolve_default_expands_relative_times():
+    now = resolve_default("@now")
+    past = resolve_default("@now-30d")
+    future = resolve_default("@now+365d")
+    assert all(ISO_SECONDS.fullmatch(v) for v in (now, past, future))
+    assert past < now < future
+
+
+def test_resolve_default_leaves_other_values_untouched():
+    assert resolve_default("primary") == "primary"
+    assert resolve_default(7) == 7
 
 
 def test_sync_mcp_tool_default_args_fill_missing_keys_only():

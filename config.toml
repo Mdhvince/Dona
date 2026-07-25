@@ -47,7 +47,7 @@ args = ["-y", "@cocal/google-calendar-mcp"]
 tools = ["list-calendars", "list-events", "search-events", "get-freebusy", "get-current-time"]
 json_result = true
 fixed_args = { account = "pro" }
-default_args = { calendarId = "primary" }
+default_args = { calendarId = "primary", timeMin = "@now-30d", timeMax = "@now+365d" }
 description_suffix = "(Compte professionnel Myelink, ${MYELINK_EMAIL}.)"
 [mcp.env]
 GOOGLE_OAUTH_CREDENTIALS = "${GOOGLE_OAUTH_CREDENTIALS}"
@@ -60,7 +60,7 @@ args = ["-y", "@cocal/google-calendar-mcp"]
 tools = ["list-calendars", "list-events", "search-events", "get-freebusy", "get-current-time"]
 json_result = true
 fixed_args = { account = "perso" }
-default_args = { calendarId = "primary" }
+default_args = { calendarId = "primary", timeMin = "@now-30d", timeMax = "@now+365d" }
 description_suffix = "(Compte personnel, ${PERSONAL_EMAIL}.)"
 [mcp.env]
 GOOGLE_OAUTH_CREDENTIALS = "${GOOGLE_OAUTH_CREDENTIALS}"

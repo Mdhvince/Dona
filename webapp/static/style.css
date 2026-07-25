@@ -11,6 +11,7 @@
   --text-body: #d3dade;
   --muted: #7f8b94;
   --accent: #6fb3ab;
+  --mono: ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 
 * {
@@ -60,8 +61,9 @@ a:hover {
   to { opacity: 1; }
 }
 
-@keyframes spin {
-  to { transform: rotate(360deg); }
+@keyframes pulseDot {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.35; transform: scale(0.72); }
 }
 
 /* --- Layout --- */
@@ -485,47 +487,113 @@ a.source-card:hover {
   color: #e0d9c4;
 }
 
-/* --- Live activity --- */
-.activity {
+/* --- Radar (live activity) --- */
+.radar {
   display: flex;
-  flex-direction: column;
-  gap: 10px;
-  padding: 4px 0;
+  align-items: flex-start;
+  gap: 14px;
+  animation: fadeIn 0.3s ease both;
 }
 
-.activity-head {
+.radar-avatar {
+  width: 26px;
+  height: 26px;
+  flex: none;
+  margin-top: 4px;
+  border: 1px solid rgba(111, 179, 171, 0.45);
+  border-radius: 999px;
+  background: rgba(111, 179, 171, 0.1);
+}
+
+.radar-card {
+  flex: 1;
+  min-width: 0;
+  border: 1px solid var(--panel-border);
+  background: var(--card);
+  overflow: hidden;
+}
+
+.radar-head {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
+  padding: 13px 18px;
+  border-bottom: 1px solid var(--panel-border);
 }
 
-.spinner {
-  width: 20px;
-  height: 20px;
+.radar-dot {
+  width: 7px;
+  height: 7px;
   flex: none;
-  border: 2px solid #262f36;
-  border-top-color: var(--accent);
-  border-radius: 50%;
-  animation: spin 0.8s linear infinite;
+  border-radius: 999px;
+  background: var(--accent);
+  animation: pulseDot 1.5s ease-in-out infinite;
 }
 
-.activity-label {
-  font-size: 14px;
+.radar-title {
+  font-size: 13.5px;
+  font-weight: 500;
+  color: var(--text);
+}
+
+.radar-elapsed {
+  margin-left: auto;
+  font-family: var(--mono);
+  font-size: 12px;
   color: var(--muted);
 }
 
-.activity-steps {
-  list-style: none;
-  padding: 0 0 0 2px;
-  font-size: 12.5px;
-  line-height: 1.7;
-  color: #6b7780;
+.radar-body {
+  display: flex;
+  justify-content: center;
+  padding: 10px 18px 14px;
 }
 
-.activity-steps li {
+.radar-plot {
+  position: relative;
+  width: 100%;
+  max-width: 340px;
+  padding: 10px 0;
+}
+
+.radar-plot svg {
+  display: block;
+  width: 100%;
+  height: auto;
+  overflow: visible;
+}
+
+.radar-tip {
+  position: absolute;
+  white-space: nowrap;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  letter-spacing: 0.04em;
+  color: #8fcac2;
+  pointer-events: none;
+  transition: left 0.4s ease, top 0.4s ease;
+}
+
+.radar-detail {
+  padding: 0 18px 12px;
+  font-family: var(--mono);
+  font-size: 11.5px;
+  color: var(--muted);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.radar-progress {
+  height: 2px;
+  background: rgba(221, 227, 231, 0.07);
+}
+
+.radar-progress span {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  transition: width 0.4s ease;
 }
 
 /* --- Suggestions --- */

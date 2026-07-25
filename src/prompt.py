@@ -36,27 +36,22 @@ privilégie le plus récent et précise toujours l'année ou la date de \
 l'information. Si la question est ambiguë, indique l'hypothèse retenue.
 7. Réponds en français, en me tutoyant, en Markdown concis et structuré : \
 tableau pour les comparaisons, liste à puces sinon, chiffres clés en gras. \
-Ne mentionne ni les numéros [i] des extraits ni les noms de fichiers sources \
-dans ta réponse : les sources sont affichées séparément."""
+Ne mentionne pas les noms de fichiers dans ta réponse.
+8. Cite tes extraits : chaque extrait porte un marqueur entre crochets (par \
+exemple [3f2a]). Recopie ce marqueur juste après l'information qui en vient, \
+sans le modifier. Une information issue de plusieurs extraits porte plusieurs \
+marqueurs. Un chiffre, une date ou un identifiant doit toujours porter le \
+marqueur de l'extrait exact d'où il provient. N'invente jamais de marqueur et \
+n'écris jamais de nom d'outil entre crochets : sans extrait pour l'appuyer, \
+une information ne porte aucun marqueur."""
 
 RAG_TOOL_DESCRIPTION = """Recherche dans les fichiers personnels de Medhy \
 Vinceslas et de son entreprise Myelink : impôts, banque, factures, contrats, \
 diplômes, identité, clients... Fournis une ou plusieurs reformulations \
 explicites de la recherche (synonymes, angles différents) et nomme toujours \
 la personne ou l'entreprise visée ("passeport de Medhy Vinceslas", jamais \
-"mon passeport"). Retourne des extraits numérotés avec nom de fichier et page."""
-
-CITATION_PROMPT = """Voici une réponse d'assistant et la liste des documents \
-consultés pour la produire. Identifie les documents que la réponse utilise \
-réellement : recopie leur nom de fichier exact et leur page tels qu'affichés \
-dans la liste. Laisse la liste vide si la réponse ne s'appuie sur aucun de \
-ces documents.
-
-Réponse :
-{answer}
-
-Documents consultés :
-{documents}"""
+"mon passeport"). Retourne des extraits, chacun préfixé de son marqueur de \
+citation, de son nom de fichier et de sa page."""
 
 CALENDAR_FINDER_DESCRIPTION = """Retrouve un événement d'agenda par nom de \
 personne ou intitulé, sur tous les comptes à la fois. Applique automatiquement \

@@ -14,7 +14,8 @@ import sqlite3
 from langgraph.checkpoint.sqlite import SqliteSaver
 
 from src.agent import (build_agent, collect_queries, collect_sources,
-                       current_turn, extract_citations, tool_failures)
+                       current_turn, parse_citations, source_label,
+                       tool_failures)
 from src.tools import load_mcp_tools, make_calendar_finder
 from src.config import load_config, llm_client, embedding_client, vlm_client
 from src.ingest import DOCS_DIRS, sync
@@ -84,7 +85,7 @@ def run_reindex():
 def sources_payload(sources):
     """Source metadata ready for the front end: name, page and a URL served
     by the /source route (file:// links are blocked on HTTP pages)."""
-    return [{"name": Path(info["path"]).name,
+    return [{"name": source_label(info),
              "page": info["page"],
              "url": url_for("source", path=info["path"])}
             for info in sources]
@@ -161,7 +162,7 @@ def ask():
             text = turn[-1].content
             # Candidates from the whole thread: a follow-up answered from
             # memory may legitimately cite an earlier turn's document
-            sources = extract_citations(chat_llm, text, collect_sources(state["messages"]))
+            text, sources = parse_citations(text, collect_sources(state["messages"]))
             failed, succeeded = tool_failures(turn)
             status = "ok" if not failed else ("partial" if succeeded else "error")
             # nh3 strips raw HTML that python-markdown lets through (XSS via corpus)

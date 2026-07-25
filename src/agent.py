@@ -1,28 +1,17 @@
+import re
+from collections import Counter
 from datetime import date
 from pathlib import Path
 
 from langchain.agents import create_agent
-from langchain.agents.middleware import ModelRequest, dynamic_prompt
-from langchain_core.messages import HumanMessage, ToolMessage
-from pydantic import BaseModel, Field
+from langchain.agents.middleware import ModelRequest, dynamic_prompt, wrap_model_call
+from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
-from src.prompt import CITATION_PROMPT, SYSTEM_PROMPT
+from src.prompt import SYSTEM_PROMPT
 from src.tools import TOOL_ERROR, make_rag_tool
 
 
-class CitedSource(BaseModel):
-    file: str = Field(description="Nom exact du fichier, tel qu'affiché dans la liste")
-    page: int | str | None = Field(default=None, description="Page du document utilisé")
-
-
-class CitedSources(BaseModel):
-    """Structured output of the citation extraction; field descriptions are
-    French prompt content. Strict schema on purpose: the extraction call has
-    no competing tool-calling concern, and a lax union lets models cite as
-    plain strings that validation would then drop."""
-    sources: list[CitedSource] = Field(
-        default_factory=list,
-        description="Documents réellement utilisés par la réponse, vide si aucun")
+CITATION_MARKER = re.compile(r" ?\[([0-9a-f]{4})\]")
 
 
 @dynamic_prompt
@@ -32,35 +21,64 @@ def system_prompt(request: ModelRequest) -> str:
     return SYSTEM_PROMPT.format(date=date.today().strftime("%d/%m/%Y"))
 
 
+def conversation_only(messages):
+    """Past turns keep their conversation (questions and answers) but lose
+    their tool calls and retrieved excerpts; the current turn is untouched.
+    Left in place, stale excerpts make the model answer from them instead of
+    searching again - including "not found" on documents it never looked
+    for. Tool calls are dropped along with their results: a dangling call
+    without its result is rejected by some providers."""
+    turn_start = len(messages)
+    for i in range(len(messages) - 1, -1, -1):
+        if isinstance(messages[i], HumanMessage):
+            turn_start = i
+            break
+
+    kept = []
+    for message in messages[:turn_start]:
+        if isinstance(message, ToolMessage):
+            continue
+        if isinstance(message, AIMessage):
+            if not message.content:
+                continue
+            message = AIMessage(content=message.content)
+        kept.append(message)
+    return kept + messages[turn_start:]
+
+
+@wrap_model_call
+def fresh_retrieval(request, handler):
+    """Every question triggers its own search: the model cannot lean on the
+    excerpts of a previous turn."""
+    return handler(request.override(messages=conversation_only(request.messages)))
+
+
 def build_agent(retriever, llm, checkpointer=None, extra_tools=()):
     """Agent over the personal documents RAG plus any extra tools (MCP
     servers: calendar, gmail...). Passing a checkpointer enables multi-turn
     conversations (one thread_id per conversation). No response_format on
     purpose: a constrained output grammar competes with tool calling on some
-    models; citations are extracted afterwards by extract_citations()."""
+    models; the agent cites inline instead (see parse_citations)."""
     return create_agent(
         model=llm,
         tools=[make_rag_tool(retriever), *extra_tools],
-        middleware=[system_prompt],
+        middleware=[system_prompt, fresh_retrieval],
         checkpointer=checkpointer)
 
 
-def extract_citations(llm, answer_text, retrieved):
-    """Post-hoc structured call, decoupled from the agent loop so it stays
-    model-agnostic: given the final answer and the retrieved documents, the
-    model ticks the ones the answer actually uses; validate_citations then
-    drops anything that does not match a really retrieved document. Returns
-    [] when there is nothing to cite or the extraction fails."""
-    if not retrieved or not answer_text:
-        return []
-    documents = "\n".join(f"- {Path(info['path']).name}, page {info['page']}"
-                          for info in retrieved)
-    try:
-        result = llm.with_structured_output(CitedSources).invoke(
-            CITATION_PROMPT.format(answer=answer_text, documents=documents))
-    except Exception:
-        return []
-    return validate_citations(result.sources, retrieved)
+def parse_citations(answer_text, retrieved):
+    """Resolve the [id] markers the agent wrote into the chunks they point
+    to, and strip them from the displayed answer. Fully deterministic: the
+    citing model is the one that read the excerpts, and an id matching no
+    retrieved chunk is dropped. Returns (clean text, cited sources)."""
+    by_id = {info["id"]: info for info in retrieved if info.get("id")}
+    cited, seen = [], set()
+    for marker in CITATION_MARKER.findall(answer_text or ""):
+        info = by_id.get(marker)
+        if info and marker not in seen:
+            seen.add(marker)
+            cited.append(info)
+    return CITATION_MARKER.sub("", answer_text or ""), cited
 
 
 def current_turn(messages):
@@ -72,9 +90,26 @@ def current_turn(messages):
     return messages
 
 
+def source_label(info):
+    return info.get("label") or Path(info["path"]).name
+
+
+def _add_labels(sources):
+    """Give each source a label that is unique among them: the file name,
+    plus its parent folder when several paths share that name (accounting
+    documents repeat identically across fiscal years). Without it, citation
+    matching and the UI would confuse two different files."""
+    names = Counter(Path(info["path"]).name for info in sources)
+    for info in sources:
+        name = Path(info["path"]).name
+        info["label"] = (name if names[name] == 1
+                         else f"{name} ({Path(info['path']).parent.name})")
+    return sources
+
+
 def collect_sources(messages):
-    """Deduplicated {path, page} of every document retrieved during the run,
-    read from the tool message artifacts (never from the LLM output)."""
+    """Deduplicated {path, page, label} of every document retrieved during
+    the run, read from the tool message artifacts (never from the LLM)."""
     sources, seen = [], set()
     for message in messages:
         if not isinstance(message, ToolMessage):
@@ -83,26 +118,8 @@ def collect_sources(messages):
             key = (info.get("path"), info.get("page"))
             if info.get("path") and key not in seen:
                 seen.add(key)
-                sources.append(info)
-    return sources
-
-
-def validate_citations(cited, retrieved):
-    """Keep only the citations matching a document actually retrieved during
-    the run, matched on (file name, page); paths always come from the
-    artifacts, never from the LLM. Order and deduplication follow the
-    citations."""
-    by_key = {(Path(info["path"]).name, info["page"]): info for info in retrieved}
-    validated, seen = [], set()
-    for citation in cited:
-        if not isinstance(citation, CitedSource):
-            continue
-        key = (citation.file, None if citation.page is None else str(citation.page))
-        info = by_key.get(key)
-        if info and key not in seen:
-            seen.add(key)
-            validated.append(info)
-    return validated
+                sources.append(dict(info))
+    return _add_labels(sources)
 
 
 def tool_failures(messages):

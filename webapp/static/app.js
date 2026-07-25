@@ -30,11 +30,37 @@ const STARTERS = [
   "Combien d'impôts j'ai payé en 2024 ?",
 ];
 
+// Radar axes: the agent's capabilities, including the ones not wired yet -
+// an unused axis simply stays flat until its tools exist
+const AXES = ["Réflexion", "Documents", "Agenda pro", "Agenda perso",
+              "Recherche web", "Qonto", "Mail pro", "Mail perso"];
+
+// Tool name -> axes it lights up, and the phrase shown while it runs.
+// Anchored patterns, most specific first: the web route is the catch-all
+const TOOL_ROUTES = [
+  [/^rag_/, [1], "Je cherche dans tes documents"],
+  [/^calendar_find_event/, [2, 3], "Je cherche dans tes agendas"],
+  [/^calendar_pro/, [2], "Je consulte ton agenda pro"],
+  [/^calendar_perso/, [3], "Je consulte ton agenda perso"],
+  [/^qonto/, [5], "Je vérifie tes transactions"],
+  [/^(gmail|mail)_pro/, [6], "Je lis ta boîte mail pro"],
+  [/^(gmail|mail)_perso/, [7], "Je lis ta boîte mail perso"],
+  [/^(web|search|tavily|brave)/, [4], "Je cherche sur le web"],
+];
+
 const PHASES = {
-  thinking: (event) => `Réflexion... (${event.tokens} tokens)`,
-  tool_prep: () => "Préparation d'un appel d'outil...",
-  answer: (event) => `Rédaction de la réponse... (${event.tokens} tokens)`,
+  thinking: (event) => [[0], "Je réfléchis à ta demande", `${event.tokens} tokens`],
+  tool_prep: () => [[0], "Je prépare un appel d'outil", "…"],
+  answer: (event) => [[0], "Je rédige ta réponse", `${event.tokens} tokens`],
 };
+
+const SVG_NS = "http://www.w3.org/2000/svg";
+
+function svgEl(name, attrs) {
+  const el = document.createElementNS(SVG_NS, name);
+  for (const [key, value] of Object.entries(attrs || {})) el.setAttribute(key, value);
+  return el;
+}
 
 // One thread per conversation: kept across reloads, renewed from the menu
 let threadId = localStorage.getItem("thread_id") || crypto.randomUUID();
@@ -125,37 +151,195 @@ function addSources(sources) {
   updateSourceCount();
 }
 
-// Live activity block: blinking dots, a mutating phase label, and the
-// discrete steps (tool calls, retrieved chunks) stacked underneath
-function startActivity() {
-  const activity = document.createElement("div");
-  activity.className = "activity";
+// Live activity radar: the shape morphs toward the axis of whatever the
+// agent is doing right now (thinking, or the tool being called)
+let radarSeq = 0;
 
-  const header = document.createElement("div");
-  header.className = "activity-head";
-  const spinner = document.createElement("div");
-  spinner.className = "spinner";
-  const label = document.createElement("span");
-  label.className = "activity-label";
-  label.textContent = "L'assistant consulte les sources...";
-  header.append(spinner, label);
+function startRadar() {
+  const size = AXES.length;
+  const RADIUS = 92;
+  const gradientId = `radarFill${radarSeq}`;
+  const glowId = `radarGlow${radarSeq}`;
+  radarSeq += 1;
 
-  const steps = document.createElement("ul");
-  steps.className = "activity-steps";
+  const values = AXES.map((_, i) => (i === 0 ? 70 : 12));
+  let from = values.slice();
+  let to = values.slice();
+  let morphStart = performance.now();
+  const visited = new Set([0]);
+  let active = [0];
+  let ghost = "";
+  let running = true;
 
-  activity.append(header, steps);
-  messagesEl.appendChild(activity);
+  const point = (index, value) => {
+    const angle = (index * Math.PI * 2) / size;
+    const r = (RADIUS * Math.max(0, Math.min(105, value))) / 100;
+    return [r * Math.sin(angle), -r * Math.cos(angle)];
+  };
+
+  // Closed Catmull-Rom spline, as smooth as the mock's curve
+  const spline = (points) => {
+    const t = 1 / 6;
+    let d = `M ${points[0][0].toFixed(2)} ${points[0][1].toFixed(2)}`;
+    for (let i = 0; i < points.length; i += 1) {
+      const p0 = points[(i - 1 + size) % size];
+      const p1 = points[i];
+      const p2 = points[(i + 1) % size];
+      const p3 = points[(i + 2) % size];
+      const c1 = [p1[0] + (p2[0] - p0[0]) * t, p1[1] + (p2[1] - p0[1]) * t];
+      const c2 = [p2[0] - (p3[0] - p1[0]) * t, p2[1] - (p3[1] - p1[1]) * t];
+      d += ` C ${c1[0].toFixed(2)} ${c1[1].toFixed(2)} ${c2[0].toFixed(2)} ${c2[1].toFixed(2)}`
+         + ` ${p2[0].toFixed(2)} ${p2[1].toFixed(2)}`;
+    }
+    return `${d} Z`;
+  };
+
+  const radar = document.createElement("div");
+  radar.className = "radar";
+  const avatar = document.createElement("div");
+  avatar.className = "radar-avatar";
+  const card = document.createElement("div");
+  card.className = "radar-card";
+
+  const head = document.createElement("div");
+  head.className = "radar-head";
+  const dot = document.createElement("span");
+  dot.className = "radar-dot";
+  const title = document.createElement("span");
+  title.className = "radar-title";
+  title.textContent = "Je réfléchis à ta demande";
+  const elapsed = document.createElement("span");
+  elapsed.className = "radar-elapsed";
+  elapsed.textContent = "0:00";
+  head.append(dot, title, elapsed);
+
+  const body = document.createElement("div");
+  body.className = "radar-body";
+  const plot = document.createElement("div");
+  plot.className = "radar-plot";
+  const tip = document.createElement("div");
+  tip.className = "radar-tip";
+  tip.textContent = AXES[0];
+
+  const svg = svgEl("svg", { viewBox: "-160 -128 320 256" });
+  const defs = svgEl("defs");
+  const gradient = svgEl("radialGradient", { id: gradientId, cx: "50%", cy: "50%", r: "50%" });
+  gradient.append(
+    svgEl("stop", { offset: "0%", "stop-color": "#6fb3ab", "stop-opacity": "0.26" }),
+    svgEl("stop", { offset: "100%", "stop-color": "#6fb3ab", "stop-opacity": "0.05" }));
+  const filter = svgEl("filter", { id: glowId, x: "-60%", y: "-60%", width: "220%", height: "220%" });
+  filter.appendChild(svgEl("feGaussianBlur", { stdDeviation: "4.5", result: "b" }));
+  const merge = svgEl("feMerge");
+  merge.append(svgEl("feMergeNode", { in: "b" }), svgEl("feMergeNode", { in: "SourceGraphic" }));
+  filter.appendChild(merge);
+  defs.append(gradient, filter);
+
+  const rings = svgEl("g", { stroke: "#dde3e7", fill: "none" });
+  [23, 46, 69, 92].forEach((r, i) => {
+    rings.appendChild(svgEl("circle", { r, "stroke-opacity": i === 3 ? "0.11" : "0.06" }));
+  });
+  const spokes = svgEl("g", { stroke: "#dde3e7", "stroke-opacity": "0.08" });
+  AXES.forEach((_, i) => {
+    const [x, y] = point(i, 100);
+    spokes.appendChild(svgEl("line", { x1: 0, y1: 0, x2: x.toFixed(2), y2: y.toFixed(2) }));
+  });
+
+  const ghostPath = svgEl("path", {
+    fill: "none", stroke: "#6fb3ab", "stroke-width": "1.2",
+    "stroke-opacity": "0", "stroke-linejoin": "round" });
+  const areaPath = svgEl("path", { fill: `url(#${gradientId})`, stroke: "none" });
+  const strokePath = svgEl("path", {
+    fill: "none", stroke: "#6fb3ab", "stroke-width": "2",
+    "stroke-linejoin": "round", filter: `url(#${glowId})` });
+  const dots = AXES.map(() => svgEl("circle", {
+    r: "2.4", fill: "#1a1f24", stroke: "#8fcac2",
+    "stroke-width": "1.7", "stroke-opacity": "0.42" }));
+
+  svg.append(defs, rings, spokes, ghostPath, areaPath, strokePath, ...dots);
+  plot.append(tip, svg);
+  body.appendChild(plot);
+
+  const detail = document.createElement("div");
+  detail.className = "radar-detail";
+  const progress = document.createElement("div");
+  progress.className = "radar-progress";
+  const progressBar = document.createElement("span");
+  progressBar.style.width = "0%";
+  progress.appendChild(progressBar);
+
+  card.append(head, body, detail, progress);
+  radar.append(avatar, card);
+  messagesEl.appendChild(radar);
   scrollDown();
 
+  const started = performance.now();
+  const ease = (p) => (p < 0.5 ? 4 * p * p * p : 1 - Math.pow(-2 * p + 2, 3) / 2);
+
+  const frame = (now) => {
+    if (!running) return;
+    const raw = Math.min(1, (now - morphStart) / 900);
+    const stagger = 0.6;
+    const span = 1 / (1 + stagger);
+    const points = values.map((_, i) => {
+      const start = (i / (size - 1)) * stagger * span;
+      const p = Math.max(0, Math.min(1, (raw - start) / span));
+      values[i] = from[i] + (to[i] - from[i]) * ease(p);
+      return point(i, values[i]);
+    });
+
+    const d = spline(points);
+    areaPath.setAttribute("d", d);
+    strokePath.setAttribute("d", d);
+    ghostPath.setAttribute("d", ghost);
+    ghostPath.setAttribute("stroke-opacity", ((1 - raw) * 0.35).toFixed(3));
+    points.forEach(([x, y], i) => {
+      const isActive = active.includes(i);
+      dots[i].setAttribute("cx", x.toFixed(2));
+      dots[i].setAttribute("cy", y.toFixed(2));
+      dots[i].setAttribute("r", isActive ? "3.6" : "2.4");
+      dots[i].setAttribute("stroke-opacity", isActive ? "1" : "0.42");
+    });
+
+    const [tx, ty] = point(active[0], 118);
+    tip.style.left = `${(((tx + 160) / 320) * 100).toFixed(2)}%`;
+    tip.style.top = `${(((ty + 128) / 256) * 100).toFixed(2)}%`;
+    tip.style.transform = "translate(-50%, -50%)";
+
+    const seconds = (now - started) / 1000;
+    const shown = Math.floor(seconds);
+    elapsed.textContent = `${Math.floor(shown / 60)}:${String(shown % 60).padStart(2, "0")}`;
+    // Deliberately slow and asymptotic: finishing always beats the bar
+    progressBar.style.width = `${((1 - Math.exp(-seconds / 150)) * 100).toFixed(1)}%`;
+    requestAnimationFrame(frame);
+  };
+  requestAnimationFrame(frame);
+
+  // Target shape: active axes spike, already-used ones keep a memory bump,
+  // untouched ones stay flat - the curve mirrors what the agent really does
+  const morphTo = (axes) => {
+    axes.forEach((axis) => visited.add(axis));
+    active = axes;
+    ghost = spline(values.map((v, i) => point(i, v)));
+    from = values.slice();
+    to = AXES.map((_, i) => {
+      if (axes.includes(i)) return 92;
+      if (i === 0) return 52;
+      return visited.has(i) ? 40 : 12;
+    });
+    morphStart = performance.now();
+    tip.textContent = AXES[axes[0]];
+  };
+
   return {
-    setPhase(text) { label.textContent = text; },
-    addStep(text) {
-      const step = document.createElement("li");
-      step.textContent = text;
-      steps.appendChild(step);
-      scrollDown();
+    update(axes, statusTitle, detailText) {
+      if (axes && (axes[0] !== active[0] || axes.length !== active.length)) morphTo(axes);
+      if (statusTitle) title.textContent = statusTitle;
+      if (detailText !== undefined) detail.textContent = detailText;
     },
-    remove() { activity.remove(); },
+    remove() {
+      running = false;
+      radar.remove();
+    },
   };
 }
 
@@ -165,7 +349,7 @@ async function ask(question) {
   suggestionsEl.textContent = "";
   questionInput.value = "";
   addUserMessage(question);
-  const activity = startActivity();
+  const radar = startRadar();
   sendButton.disabled = true;
 
   try {
@@ -199,18 +383,21 @@ async function ask(question) {
           data = event;
         } else if (event.phase) {
           const render = PHASES[event.phase];
-          if (render) activity.setPhase(render(event));
+          if (render) radar.update(...render(event));
         } else if (event.tool) {
+          const route = TOOL_ROUTES.find(([pattern]) => pattern.test(event.tool));
           const args = Object.values(event.args || {}).flat().join(" · ");
-          activity.addStep(`[Calling ${event.tool}]: ${args}`);
+          radar.update(route ? route[1] : [0],
+                       route ? route[2] : `J'utilise ${event.tool}`,
+                       `${event.tool} · ${args}`);
         } else if (event.retrieved) {
-          activity.addStep(`${event.retrieved} extraits récupérés`);
+          radar.update(null, null, `${event.retrieved} extraits récupérés`);
         }
       }
     }
     if (!data) throw new Error("réponse incomplète");
 
-    activity.remove();
+    radar.remove();
 
     if (data.status === "error") {
       addBotMessage(
@@ -230,7 +417,7 @@ async function ask(question) {
     addBotMessage(data.response);
     addSources(data.sources);
   } catch (err) {
-    activity.remove();
+    radar.remove();
     addBotMessage(`Une erreur est survenue : ${err.message}`,
                   { plainText: true, error: true });
   } finally {

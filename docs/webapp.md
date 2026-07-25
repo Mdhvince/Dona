@@ -48,11 +48,19 @@ reconstruit après chaque ré-indexation.
   conversation" (menu ⋮) en génère un neuf et vide l'écran. Un rechargement
   de page vide l'affichage mais pas la mémoire du fil, conservée côté
   serveur.
-- **Activité en direct** : pendant l'attente, un bloc de points clignotants
-  affiche la phase courante (réflexion avec compteur de tokens, préparation
-  d'outil, rédaction) et empile les étapes discrètes en dessous
-  (`[Calling <outil>]: <args>`, extraits récupérés) - une étape par ligne,
-  tronquée en ellipse. Le bloc disparaît quand la réponse arrive.
+- **Radar d'activité** : pendant l'attente, une carte affiche un radar à 8
+  axes correspondant aux capacités de l'agent (Réflexion, Documents, Agenda
+  pro, Agenda perso, Recherche web, Qonto, Mail pro, Mail perso - les axes
+  non encore branchés restent plats). La courbe se déforme vers l'axe de ce
+  que l'agent fait réellement : les phases du flux de tokens pointent
+  Réflexion, chaque appel d'outil pointe son ou ses axes via `TOOL_ROUTES`
+  (motifs ancrés, le plus spécifique d'abord ; un outil inconnu retombe sur
+  Réflexion). Un axe déjà utilisé garde une valeur intermédiaire, la forme
+  précédente reste en rémanence le temps du morph. L'en-tête donne la phrase
+  d'état et le temps écoulé, la ligne mono sous le radar le détail courant
+  (requêtes de l'outil, compteur de tokens, extraits récupérés) et la barre
+  du bas une progression asymptotique (le nombre d'étapes étant inconnu,
+  elle n'atteint jamais 100%). La carte disparaît quand la réponse arrive.
 - **Panneau Sources** : les sources citées s'accumulent en cartes
   (nom de fichier + page) sur toute la conversation, dédupliquées ; un clic
   ouvre le document dans un nouvel onglet à la page citée (`#page=N`). Le
