@@ -52,7 +52,10 @@ changement de modèle d'embedding (espaces vectoriels incompatibles).
 
 ### Périmètre
 
-- Racines : les deux montages Google Drive (`DOCS_DIRS`).
+- Racines : les montages Google Drive listés dans `DOCS_DIRS` (variable
+  `.env`, voir `.env.example` : chemins personnels hors du repo ; comme les
+  emails et le chemin des credentials OAuth, interpolés `${VAR}` dans
+  `config.toml` au chargement).
 - Formats : .pdf, .png, .jpg, .jpeg, .txt, .md.
 - Tout chemin traversant un dossier commençant par `_` est exclu (privé).
 - Métadonnées par chunk : `source`, `page`, `mtime`, `section`, et un tag

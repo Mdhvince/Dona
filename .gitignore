@@ -19,3 +19,6 @@ conversations.db*
 .idea/
 .jbeval/
 .claude/
+
+# OS
+.DS_Store

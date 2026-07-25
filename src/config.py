@@ -1,15 +1,53 @@
+import os
+import re
 import tomllib
 from pathlib import Path
 
+from dotenv import load_dotenv
 from langchain_ollama import ChatOllama
 from langchain_openai import OpenAIEmbeddings
 
 CONFIG_PATH = Path(__file__).parent.parent / "config.toml"
+ENV_PATH = Path(__file__).parent.parent / ".env"
+
+_PLACEHOLDER = re.compile(r"\$\{(\w+)\}")
+
+
+def _expand(value):
+    """Expand ${VAR} placeholders from the environment (.env): personal
+    data (emails, paths, credentials) stays out of the tracked config."""
+    if isinstance(value, str):
+        def repl(match):
+            var = match.group(1)
+            if var not in os.environ:
+                raise KeyError(
+                    f"Variable d'environnement manquante : {var} (voir .env.example)")
+            return os.environ[var]
+        return _PLACEHOLDER.sub(repl, value)
+    if isinstance(value, dict):
+        return {k: _expand(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_expand(v) for v in value]
+    return value
 
 
 def load_config():
+    load_dotenv(ENV_PATH)
     with open(CONFIG_PATH, "rb") as f:
-        return tomllib.load(f)
+        return _expand(tomllib.load(f))
+
+
+def docs_dirs():
+    """Drive roots to index, from DOCS_DIRS in .env (os.pathsep-separated).
+    Raises rather than returning empty: sync() against zero roots would
+    read it as 'everything deleted' and wipe the index."""
+    load_dotenv(ENV_PATH)
+    raw = os.environ.get("DOCS_DIRS", "")
+    dirs = [Path(p) for p in raw.split(os.pathsep) if p.strip()]
+    if not dirs:
+        raise SystemExit("DOCS_DIRS absent de .env (voir .env.example) : "
+                         "racines d'indexation inconnues")
+    return dirs
 
 
 def llm_client(config):

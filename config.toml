@@ -1,4 +1,5 @@
-# Assistant configuration - API keys stay in .env
+# Assistant configuration - API keys and personal data (emails, paths) stay
+# in .env as ${VAR} placeholders - see .env.example
 
 [llm]
 # Chat model of the agent, through Ollama's native API. Reasoning stays on:
@@ -47,9 +48,9 @@ tools = ["list-calendars", "list-events", "search-events", "get-freebusy", "get-
 json_result = true
 fixed_args = { account = "pro" }
 default_args = { calendarId = "primary" }
-description_suffix = "(Compte professionnel Myelink, mvinceslas@myelink.io.)"
+description_suffix = "(Compte professionnel Myelink, ${MYELINK_EMAIL}.)"
 [mcp.env]
-GOOGLE_OAUTH_CREDENTIALS = "/Users/medhyvinceslas/.secrets/google-oauth.json"
+GOOGLE_OAUTH_CREDENTIALS = "${GOOGLE_OAUTH_CREDENTIALS}"
 GOOGLE_ACCOUNT_MODE = "pro"
 
 [[mcp]]
@@ -60,7 +61,7 @@ tools = ["list-calendars", "list-events", "search-events", "get-freebusy", "get-
 json_result = true
 fixed_args = { account = "perso" }
 default_args = { calendarId = "primary" }
-description_suffix = "(Compte personnel, medhy.vinceslas@gmail.com.)"
+description_suffix = "(Compte personnel, ${PERSONAL_EMAIL}.)"
 [mcp.env]
-GOOGLE_OAUTH_CREDENTIALS = "/Users/medhyvinceslas/.secrets/google-oauth.json"
+GOOGLE_OAUTH_CREDENTIALS = "${GOOGLE_OAUTH_CREDENTIALS}"
 GOOGLE_ACCOUNT_MODE = "perso"

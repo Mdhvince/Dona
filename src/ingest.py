@@ -9,18 +9,16 @@ from langchain_core.documents import Document
 from langchain_core.messages import HumanMessage
 from pypdf import PdfReader
 
-from src.config import load_config, embedding_client, vlm_client
+from src.config import load_config, docs_dirs, embedding_client, vlm_client
 from src.document_processing import markdown_splitter
 from src.prompt import IMAGE_TRANSCRIPTION_PROMPT, PDF_TRANSCRIPTION_PROMPT
 
 HERE = Path(__file__).parent
 PERSIST_DIR = str(HERE.parent / "vectordb")
 
-# Roots to index: Google Drive mounts (subfolders included)
-DOCS_DIRS = [
-    Path("/Users/medhyvinceslas/Library/CloudStorage/GoogleDrive-mvinceslas@myelink.io/Mon Drive"),
-    Path("/Users/medhyvinceslas/Library/CloudStorage/GoogleDrive-medhy.vinceslas@gmail.com/Mon Drive"),
-]
+# Roots to index (Google Drive mounts, subfolders included) come from
+# DOCS_DIRS in .env: personal paths stay out of the repo (see .env.example)
+DOCS_DIRS = docs_dirs()
 
 TEXT_SUFFIXES = {".txt", ".md"}
 IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg"}
