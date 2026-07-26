@@ -1,5 +1,21 @@
 # Agent
 
+## Routage
+
+Un graphe LangGraph place un routeur devant deux branches partageant le même
+historique de messages. Le routeur et la branche conversation utilisent le
+même modèle que l'agent mais avec `reasoning = false` (section `[router]`) :
+`think` étant un paramètre par requête, les poids déjà chargés servent les
+trois rôles, sans mémoire supplémentaire. Une salutation est ainsi traitée
+en une fraction de seconde au lieu des ~20 s que coûte la réflexion.
+
+Le routeur ne répond que par CONVERSATION ou OUTILS, et **tout sauf un
+CONVERSATION explicite mène à l'agent complet** - réponse illisible, doute,
+panne du routeur : une vraie question traitée sans outils serait
+hallucinée, alors qu'une salutation traitée par l'agent ne coûte que du
+temps. La branche conversation reçoit l'historique du fil (nettoyé de ses
+appels d'outils) pour comprendre les références, mais aucun outil.
+
 Agent LangGraph (`create_agent`, LangChain 1.x) construit dans
 `src/agent.py`, modèle de chat configuré dans `config.toml [llm]` (Ollama,
 API native). Le prompt système et les descriptions d'outils vivent dans

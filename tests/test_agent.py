@@ -1,7 +1,7 @@
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
 from src.agent import (collect_queries, collect_sources, conversation_only,
-                       current_turn, parse_citations, tool_failures)
+                       current_turn, parse_citations, route, tool_failures)
 from src.tools import TOOL_ERROR
 
 
@@ -130,6 +130,30 @@ def test_conversation_only_strips_past_excerpts_and_keeps_the_current_turn():
     # The past answer survives without its tool call, the current turn is intact
     assert kept[1].content == "r1" and not kept[1].tool_calls
     assert kept[3].tool_calls and kept[4] is history[6]
+
+
+class FakeRouterLLM:
+    def __init__(self, verdict=None, error=False):
+        self.verdict = verdict
+        self.error = error
+
+    def invoke(self, prompt):
+        if self.error:
+            raise RuntimeError("router down")
+        return AIMessage(content=self.verdict)
+
+
+def test_route_sends_small_talk_to_the_conversation_branch():
+    assert route(FakeRouterLLM("CONVERSATION"), "merci") == "conversation"
+
+
+def test_route_defaults_to_the_tool_agent():
+    # Anything but an explicit CONVERSATION verdict, including junk, a
+    # refusal or a router failure: answering without tools would hallucinate
+    assert route(FakeRouterLLM("OUTILS"), "mon SIRET ?") == "agent"
+    assert route(FakeRouterLLM("je ne sais pas"), "mon SIRET ?") == "agent"
+    assert route(FakeRouterLLM(""), "mon SIRET ?") == "agent"
+    assert route(FakeRouterLLM(error=True), "mon SIRET ?") == "agent"
 
 
 def test_conversation_only_leaves_a_single_turn_untouched():

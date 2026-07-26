@@ -14,11 +14,12 @@ import sqlite3
 from langgraph.checkpoint.sqlite import SqliteSaver
 from langgraph.types import Command
 
-from src.agent import (build_agent, collect_queries, collect_sources,
+from src.agent import (build_graph, collect_queries, collect_sources,
                        current_turn, parse_citations, source_label,
                        tool_failures)
 from src.tools import confirmed_tool_names, load_mcp_tools, make_calendar_finder
-from src.config import load_config, llm_client, embedding_client, vlm_client
+from src.config import (load_config, llm_client, router_client,
+                        embedding_client, vlm_client)
 from src.ingest import DOCS_DIRS, sync
 from src.retrieval import HybridRetriever
 
@@ -30,6 +31,7 @@ app = Flask(__name__)
 # RAG pipeline built once at startup, shared across requests
 config = load_config()
 chat_llm = llm_client(config)
+router_llm = router_client(config)
 vectordb = Chroma(persist_directory=PERSIST_DIR,
                   embedding_function=embedding_client(config))
 
@@ -54,7 +56,8 @@ def build_rag_agent():
         agent = None
         return
     retriever = HybridRetriever.from_vectordb(vectordb, **config["retriever"])
-    agent = build_agent(retriever, chat_llm, checkpointer, extra_tools=extra_tools,
+    agent = build_graph(retriever, chat_llm, router_llm, checkpointer,
+                        extra_tools=extra_tools,
                         confirm_tools=confirmed_tool_names(config))
 
 
@@ -116,8 +119,12 @@ def agent_events(agent_input, thread_id):
         last_beat = time.monotonic()
         return json.dumps(payload) + "\n"
 
-    for mode, data in agent.stream(agent_input, config=run_config,
-                                   stream_mode=["messages", "values"]):
+    # subgraphs=True: without it the parent only emits state between its own
+    # nodes, so the tool calls of the agent subgraph would surface only once
+    # everything is over - the live activity would stay stuck on thinking
+    for _namespace, mode, data in agent.stream(agent_input, config=run_config,
+                                               stream_mode=["messages", "values"],
+                                               subgraphs=True):
         if mode == "messages":
             chunk, _ = data
             beat = None
@@ -134,8 +141,10 @@ def agent_events(agent_input, thread_id):
                 yield beat
             continue
 
+        if not isinstance(data, dict) or "messages" not in data:
+            continue
         state = data
-        if isinstance(state, dict) and state.get("__interrupt__"):
+        if state.get("__interrupt__"):
             # The args shown are the ones that would really be sent, never a
             # paraphrase by the model
             requests = state["__interrupt__"][0].value.get("action_requests", [])

@@ -25,7 +25,15 @@ IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg"}
 RENDER_DPI = 150
 
 
-def _transcribe(vlm, image_bytes, mime, prompt):
+def llm_bases_img2text(vlm, image_bytes, mime, prompt):
+    """
+    This function converts an image to text using a vision language model (VLM).
+    :param vlm: The vision language model to use for the conversion.
+    :param image_bytes: The image data in bytes format.
+    :param mime: The MIME type of the image (e.g., "image/png", "image/jpeg").
+    :param prompt: The prompt to guide the VLM in the conversion process.
+    :return: The text output from the VLM after processing the image.
+    """
     b64 = base64.b64encode(image_bytes).decode()
     message = HumanMessage(content=[
         {"type": "text", "text": prompt},
@@ -35,6 +43,7 @@ def _transcribe(vlm, image_bytes, mime, prompt):
 
 
 def _render_page(page):
+    """Render a PDF page to a PIL image at RENDER_DPI."""
     image = page.render(scale=RENDER_DPI / 72).to_pil()
     buffer = io.BytesIO()
     image.save(buffer, format="PNG")
@@ -93,7 +102,7 @@ def load_pdf(path, vlm):
         # flush: page-by-page progress must show up even when stdout is piped
         print(f"    {path.name} : page {i + 1}/{len(pdf)}...", flush=True)
         documents.append(
-            Document(page_content=_transcribe(vlm, _render_page(pdf[i]), "image/png", PDF_TRANSCRIPTION_PROMPT),
+            Document(page_content=llm_bases_img2text(vlm, _render_page(pdf[i]), "image/png", PDF_TRANSCRIPTION_PROMPT),
                      metadata={"source": str(path), "page": i + 1}))
     warnings = validate_transcription(path, documents)
     for warning in warnings:
@@ -103,7 +112,7 @@ def load_pdf(path, vlm):
 
 def load_image(path, vlm):
     mime = "image/png" if path.suffix.lower() == ".png" else "image/jpeg"
-    return [Document(page_content=_transcribe(vlm, path.read_bytes(), mime, IMAGE_TRANSCRIPTION_PROMPT),
+    return [Document(page_content=llm_bases_img2text(vlm, path.read_bytes(), mime, IMAGE_TRANSCRIPTION_PROMPT),
                      metadata={"source": str(path)})]
 
 
@@ -149,30 +158,59 @@ def load_file(root, path, vlm):
     return documents, warnings
 
 
-def sync(docs_dirs, vectordb, vlm, chunk_size, chunk_overlap, on_progress=None):
-    """Incremental ingestion: transcribe and index new or modified files, drop
-    the chunks of deleted files, leave everything else untouched. A full
-    rebuild is simply sync() against an empty vector store.
-    on_progress(done, total, current_name) is called as files get processed."""
+def indexed_files(vectordb):
+    """{source: {ids, mtime}} for everything currently in the store: the
+    chunk ids to delete on update, and the mtime to compare against disk."""
     stored = vectordb.get(include=["metadatas"])
     indexed = {}
     for chunk_id, metadata in zip(stored["ids"], stored["metadatas"]):
         entry = indexed.setdefault(metadata["source"],
                                    {"ids": [], "mtime": metadata.get("mtime", 0)})
         entry["ids"].append(chunk_id)
+    return indexed
 
-    on_disk = {str(path): (root, path) for root, path in iter_files(docs_dirs)}
 
+def drop_deleted(vectordb, indexed, on_disk):
+    """Remove the chunks of files that no longer exist on disk."""
     removed = [source for source in indexed if source not in on_disk]
     for source in removed:
         vectordb.delete(ids=indexed[source]["ids"])
         print(f"  retiré : {source}")
+    return removed
 
-    # 1s tolerance: cloud storage mounts (Google Drive) jitter sub-second
-    # mtimes between stat calls, which would re-index the same files forever
-    to_process = [(source, root, path) for source, (root, path) in on_disk.items()
-                  if source not in indexed
-                  or path.stat().st_mtime > indexed[source]["mtime"] + 1]
+
+def outdated_files(indexed, on_disk):
+    """Files to transcribe again: absent from the index, or modified since.
+    1s tolerance: cloud storage mounts (Google Drive) jitter sub-second
+    mtimes between stat calls, which would re-index the same files forever."""
+    return [(source, root, path) for source, (root, path) in on_disk.items()
+            if source not in indexed
+            or path.stat().st_mtime > indexed[source]["mtime"] + 1]
+
+
+def index_file(vectordb, entry, root, path, vlm, chunk_size, chunk_overlap):
+    """Transcribe one file and replace its chunks in the store. Returns its
+    warnings; the old chunks are deleted only once the new ones are ready,
+    so a crash mid-file leaves the previous version in place."""
+    documents, warnings = load_file(root, path, vlm)
+    chunks = markdown_splitter(documents, chunk_size=chunk_size, chunk_overlap=chunk_overlap)
+    if entry:
+        vectordb.delete(ids=entry["ids"])
+    if chunks:
+        vectordb.add_documents(chunks)
+    return chunks, warnings
+
+
+def sync(docs_dirs, vectordb, vlm, chunk_size, chunk_overlap, on_progress=None):
+    """Incremental ingestion: transcribe and index new or modified files, drop
+    the chunks of deleted files, leave everything else untouched. A full
+    rebuild is simply sync() against an empty vector store.
+    on_progress(done, total, current_name) is called as files get processed."""
+    indexed = indexed_files(vectordb)
+    on_disk = {str(path): (root, path) for root, path in iter_files(docs_dirs)}
+    removed = drop_deleted(vectordb, indexed, on_disk)
+
+    to_process = outdated_files(indexed, on_disk)
     total = len(to_process)
     if on_progress:
         on_progress(0, total, None)
@@ -181,7 +219,8 @@ def sync(docs_dirs, vectordb, vlm, chunk_size, chunk_overlap, on_progress=None):
     all_warnings = []
     for done, (source, root, path) in enumerate(to_process, 1):
         try:
-            documents, warnings = load_file(root, path, vlm)
+            chunks, warnings = index_file(vectordb, indexed.get(source), root, path,
+                                          vlm, chunk_size, chunk_overlap)
         except Exception as exc:
             print(f"⚠ échec sur {path.name} : {exc}")
             all_warnings.append({"file": path.name, "message": f"échec : {exc}"})
@@ -190,15 +229,10 @@ def sync(docs_dirs, vectordb, vlm, chunk_size, chunk_overlap, on_progress=None):
             if on_progress:
                 on_progress(done, total, path.name)
         all_warnings.extend({"file": path.name, "message": warning} for warning in warnings)
-        chunks = markdown_splitter(documents, chunk_size=chunk_size, chunk_overlap=chunk_overlap)
-        entry = indexed.get(source)
-        if entry:
-            vectordb.delete(ids=entry["ids"])
+        if source in indexed:
             updated += 1
         else:
             added += 1
-        if chunks:
-            vectordb.add_documents(chunks)
         print(f"  indexé : {path.relative_to(root)} ({len(chunks)} chunks) [{done}/{total}]")
 
     print(f"Synchronisation terminée : {added} ajouté(s), {updated} mis à jour, "

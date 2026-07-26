@@ -6,9 +6,10 @@ from pathlib import Path
 from langchain.agents import create_agent
 from langchain.agents.middleware import (HumanInTheLoopMiddleware, ModelRequest,
                                          dynamic_prompt, wrap_model_call)
-from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
+from langgraph.graph import END, START, MessagesState, StateGraph
 
-from src.prompt import SYSTEM_PROMPT
+from src.prompt import CONVERSATION_PROMPT, ROUTER_PROMPT, SYSTEM_PROMPT
 from src.tools import TOOL_ERROR, make_rag_tool
 
 
@@ -52,6 +53,42 @@ def fresh_retrieval(request, handler):
     """Every question triggers its own search: the model cannot lean on the
     excerpts of a previous turn."""
     return handler(request.override(messages=conversation_only(request.messages)))
+
+
+def route(router_llm, message):
+    """CONVERSATION only when the message clearly needs no data: anything
+    else, including any doubt or an unreadable answer, goes to the tool
+    agent. Misrouting a real question would answer it without tools."""
+    try:
+        verdict = router_llm.invoke(ROUTER_PROMPT.format(message=message)).content
+    except Exception:
+        return "agent"
+    return "conversation" if "CONVERSATION" in str(verdict).upper() else "agent"
+
+
+def build_graph(retriever, llm, router_llm, checkpointer=None, extra_tools=(),
+                confirm_tools=()):
+    """Router in front of two branches sharing one message history: small
+    talk answered directly by a no-thinking call, everything else by the
+    tool agent (citations, confirmations, fresh retrieval). The checkpointer
+    sits on the parent graph; interrupts and resumes propagate through it."""
+    agent = build_agent(retriever, llm, extra_tools=extra_tools,
+                        confirm_tools=confirm_tools)
+
+    def conversation(state):
+        prompt = CONVERSATION_PROMPT.format(date=date.today().strftime("%d/%m/%Y"))
+        messages = [SystemMessage(content=prompt), *conversation_only(state["messages"])]
+        return {"messages": [router_llm.invoke(messages)]}
+
+    graph = StateGraph(MessagesState)
+    graph.add_node("conversation", conversation)
+    graph.add_node("agent", agent)
+    graph.add_conditional_edges(
+        START, lambda state: route(router_llm, state["messages"][-1].content),
+        {"conversation": "conversation", "agent": "agent"})
+    graph.add_edge("conversation", END)
+    graph.add_edge("agent", END)
+    return graph.compile(checkpointer=checkpointer)
 
 
 def build_agent(retriever, llm, checkpointer=None, extra_tools=(), confirm_tools=()):

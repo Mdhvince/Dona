@@ -56,6 +56,12 @@ def llm_client(config):
     return ChatOllama(**config["llm"])
 
 
+def router_client(config):
+    """Same model as the agent but without thinking: routing and small talk
+    answer in a fraction of a second, and reuse the already loaded weights."""
+    return ChatOllama(**config["router"])
+
+
 def vlm_client(config):
     """Vision model, through Ollama's native API which exposes reasoning
     control: transcribes PDF pages and images at ingestion time."""

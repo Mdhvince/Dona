@@ -4,20 +4,29 @@
 [llm]
 # Chat model of the agent, through Ollama's native API. Reasoning stays on:
 # for agents, tool-call discipline lives in the thinking.
-model = "qwen3:30b"
+model = "qwen3.6:35b-mlx"
 base_url = "http://localhost:11434"
 temperature = 0.15
 num_predict = 4000  # structured output with long answers gets truncated below this
 reasoning = true  # surfaces thinking tokens so the UI can show live progress
 
+[router]
+# Same weights as [llm] (think is a per-request flag, so no extra memory):
+# routing and small talk skip the thinking, the tool agent keeps it.
+model = "qwen3.6:35b-mlx"
+base_url = "http://localhost:11434"
+temperature = 0.0
+num_predict = 200
+reasoning = false
+
 [embedding]
-model = "qwen3-embedding:8b"
+model = "bge-m3" #"qwen3-embedding:8b"
 base_url = "http://localhost:11434/v1"  # Ollama's OpenAI-compatible API - fully local
 
 [vlm]
 # Vision model: transcribes PDF pages and images at ingestion time.
 # reasoning = false: transcription does not need reasoning (~12x faster).
-model = "qwen3.5:9b"
+model = "glm-ocr"  #"qwen3.5:9b"
 base_url = "http://localhost:11434"
 temperature = 0.0
 reasoning = false
