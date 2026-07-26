@@ -53,8 +53,7 @@ chunk_overlap = 100
 name = "calendar_pro"
 command = "npx"
 args = ["-y", "@cocal/google-calendar-mcp"]
-tools = ["list-calendars", "list-events", "search-events", "get-freebusy",
-         "get-current-time", "create-event"]
+tools = ["list-calendars", "list-events", "search-events", "get-freebusy", "get-current-time", "create-event"]
 # Side-effecting tools: never run without an explicit confirmation
 confirm = ["create-event"]
 json_result = true
@@ -69,8 +68,7 @@ GOOGLE_ACCOUNT_MODE = "pro"
 name = "calendar_perso"
 command = "npx"
 args = ["-y", "@cocal/google-calendar-mcp"]
-tools = ["list-calendars", "list-events", "search-events", "get-freebusy",
-         "get-current-time", "create-event"]
+tools = ["list-calendars", "list-events", "search-events", "get-freebusy", "get-current-time", "create-event"]
 # Side-effecting tools: never run without an explicit confirmation
 confirm = ["create-event"]
 json_result = true

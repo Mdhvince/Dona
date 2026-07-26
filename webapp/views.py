@@ -17,7 +17,8 @@ from langgraph.types import Command
 from src.agent import (build_graph, collect_queries, collect_sources,
                        current_turn, parse_citations, source_label,
                        tool_failures)
-from src.tools import confirmed_tool_names, load_mcp_tools, make_calendar_finder
+from src.tools import (load_mcp_tools, make_calendar_finder, make_rag_tool,
+                       tools_needing_confirmation)
 from src.config import (load_config, docs_dirs, llm_client, router_client,
                         embedding_client, vlm_client)
 from src.ingestor import Ingestor
@@ -44,7 +45,7 @@ agent = None
 # reindex thread share the connection, SqliteSaver serializes the accesses.
 checkpointer = SqliteSaver(sqlite3.connect(str(ROOT / "conversations.db"),
                                            check_same_thread=False))
-# Loaded once at startup: reindex rebuilds reuse the same MCP tools
+# Loaded once at startup: stateless, so reindex rebuilds reuse them as is
 mcp_tools = load_mcp_tools(config)
 calendar_finder = make_calendar_finder(mcp_tools)
 extra_tools = mcp_tools + ([calendar_finder] if calendar_finder else [])
@@ -52,16 +53,17 @@ extra_tools = mcp_tools + ([calendar_finder] if calendar_finder else [])
 
 def build_rag_agent():
     """(Re)build the agent and its retriever. BM25 is an in-memory index, so
-    it must be rebuilt after every vector store update. Stays None while the
-    store is empty (first launch before any indexing)."""
+    it must be rebuilt after every vector store update, and with it the RAG
+    tool that closes over it. Stays None while the store is empty (first
+    launch before any indexing)."""
     global agent
     if not vectordb.get(limit=1)["ids"]:
         agent = None
         return
     retriever = HybridRetriever.from_vectordb(vectordb, **config["retriever"])
-    agent = build_graph(retriever, chat_llm, router_llm, checkpointer,
-                        extra_tools=extra_tools,
-                        confirm_tools=confirmed_tool_names(config))
+    tools = [make_rag_tool(retriever), *extra_tools]
+    agent = build_graph(chat_llm, router_llm, tools, checkpointer,
+                        tools_needing_confirmation=tools_needing_confirmation(config))
 
 
 build_rag_agent()

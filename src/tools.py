@@ -86,7 +86,7 @@ def sync_mcp_tool(mcp_tool, name, description=None, json_result=False,
         args_schema=mcp_tool.args_schema)
 
 
-def confirmed_tool_names(config):
+def tools_needing_confirmation(config):
     """Renamed names of the tools a server declares as side-effecting: the
     agent may only run them after an explicit confirmation."""
     names = []

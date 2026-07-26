@@ -4,7 +4,7 @@ import re
 from langchain_core.documents import Document
 from pydantic import BaseModel
 
-from src.tools import (confirmed_tool_names, make_calendar_finder, make_rag_tool,
+from src.tools import (tools_needing_confirmation, make_calendar_finder, make_rag_tool,
                        resolve_default, sync_mcp_tool)
 
 
@@ -198,13 +198,13 @@ class FakeOptionalTool:
         return f"echo:{kwargs.get('message')}"
 
 
-def test_confirmed_tool_names_uses_renamed_tools():
+def test_tools_needing_confirmation_uses_renamed_tools():
     config = {"mcp": [
         {"name": "calendar_pro", "confirm": ["create-event"]},
         {"name": "calendar_perso", "confirm": ["create-event"]},
         {"name": "readonly_server"},
     ]}
-    assert confirmed_tool_names(config) == ["calendar_pro_create_event",
+    assert tools_needing_confirmation(config) == ["calendar_pro_create_event",
                                             "calendar_perso_create_event"]
 
 

@@ -10,7 +10,7 @@ from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, Tool
 from langgraph.graph import END, START, MessagesState, StateGraph
 
 from src.prompt import CONVERSATION_PROMPT, ROUTER_PROMPT, SYSTEM_PROMPT
-from src.tools import TOOL_ERROR, make_rag_tool
+from src.tools import TOOL_ERROR
 
 
 CITATION_MARKER = re.compile(r" ?\[([0-9a-f]{4})\]")
@@ -66,14 +66,12 @@ def route(router_llm, message):
     return "conversation" if "CONVERSATION" in str(verdict).upper() else "agent"
 
 
-def build_graph(retriever, llm, router_llm, checkpointer=None, extra_tools=(),
-                confirm_tools=()):
+def build_graph(llm, router_llm, tools, checkpointer=None, tools_needing_confirmation=()):
     """Router in front of two branches sharing one message history: small
     talk answered directly by a no-thinking call, everything else by the
     tool agent (citations, confirmations, fresh retrieval). The checkpointer
     sits on the parent graph; interrupts and resumes propagate through it."""
-    agent_with_tools = build_agent(retriever, llm, extra_tools=extra_tools,
-                        confirm_tools=confirm_tools)
+    agent_with_tools = build_agent(llm, tools, tools_needing_confirmation=tools_needing_confirmation)
 
     def conversation(state):
         prompt = CONVERSATION_PROMPT.format(date=date.today().strftime("%d/%m/%Y"))
@@ -93,21 +91,22 @@ def build_graph(retriever, llm, router_llm, checkpointer=None, extra_tools=(),
     return graph.compile(checkpointer=checkpointer)
 
 
-def build_agent(retriever, llm, checkpointer=None, extra_tools=(), confirm_tools=()):
-    """Agent over the personal documents RAG plus any extra tools (MCP
-    servers: calendar, gmail...). Passing a checkpointer enables multi-turn
-    conversations (one thread_id per conversation). No response_format on
-    purpose: a constrained output grammar competes with tool calling on some
-    models; the agent cites inline instead (see parse_citations).
-    confirm_tools are side-effecting: the graph interrupts before running
-    them and only resumes on an explicit approval."""
+def build_agent(llm, tools, checkpointer=None, tools_needing_confirmation=()):
+    """Agent over the tools it is given: the documents RAG and the MCP
+    servers (calendar, qonto...) are all built by the caller. Passing a
+    checkpointer enables multi-turn conversations (one thread_id per
+    conversation). No response_format on purpose: a constrained output
+    grammar competes with tool calling on some models; the agent cites
+    inline instead (see parse_citations). Tools are listed as needing a
+    confirmation when they have side effects: the graph interrupts before
+    running them and only resumes on an explicit approval."""
     middleware = [system_prompt, fresh_retrieval]
-    if confirm_tools:
+    if tools_needing_confirmation:
         middleware.append(HumanInTheLoopMiddleware(
-            interrupt_on={name: True for name in confirm_tools}))
+            interrupt_on={name: True for name in tools_needing_confirmation}))
     return create_agent(
         model=llm,
-        tools=[make_rag_tool(retriever), *extra_tools],
+        tools=list(tools),
         middleware=middleware,
         checkpointer=checkpointer)
 
