@@ -13,12 +13,7 @@ from src.config import load_config, docs_dirs, embedding_client, vlm_client
 from src.document_processing import markdown_splitter
 from src.prompt import IMAGE_TRANSCRIPTION_PROMPT, PDF_TRANSCRIPTION_PROMPT
 
-HERE = Path(__file__).parent
-PERSIST_DIR = str(HERE.parent / "vectordb")
-
-# Roots to index (Google Drive mounts, subfolders included) come from
-# DOCS_DIRS in .env: personal paths stay out of the repo (see .env.example)
-DOCS_DIRS = docs_dirs()
+PERSIST_DIR = str(Path(__file__).parent.parent / "vectordb")
 
 TEXT_SUFFIXES = {".txt", ".md"}
 IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg"}
@@ -42,9 +37,14 @@ def llm_bases_img2text(vlm, image_bytes, mime, prompt):
     return vlm.invoke([message]).content
 
 
-def _render_page(page):
-    """Render a PDF page to a PIL image at RENDER_DPI."""
-    image = page.render(scale=RENDER_DPI / 72).to_pil()
+def pdf2png(page, dpi=RENDER_DPI):
+    """
+    Render a PDF page to PNG bytes at the given resolution
+    :param page: The PDF page to render.
+    :param dpi: The resolution in dots per inch (default is 150).
+    :return: The rendered PNG image in bytes format.
+    """
+    image = page.render(scale=dpi / 72).to_pil()
     buffer = io.BytesIO()
     image.save(buffer, format="PNG")
     return buffer.getvalue()
@@ -55,7 +55,7 @@ def _collapse_digit_groups(text):
     return re.sub(r"(?<=\d)\s+(?=\d)", "", text)
 
 
-def _numbers(text):
+def extract_numbers(text):
     return set(re.findall(r"\d+", text))
 
 
@@ -65,10 +65,10 @@ def find_invented_numbers(raw_text, transcribed_texts):
     differences, plus a substring test for long identifiers that the
     reference segments differently. Pure function, testable without a PDF."""
     collapsed_raw = _collapse_digit_groups(raw_text)
-    reference = _numbers(raw_text) | _numbers(collapsed_raw)
+    reference = extract_numbers(raw_text) | extract_numbers(collapsed_raw)
     transcribed = set()
     for text in transcribed_texts:
-        transcribed |= _numbers(_collapse_digit_groups(text))
+        transcribed |= extract_numbers(_collapse_digit_groups(text))
     return {n for n in transcribed - reference
             if len(n) >= 2 and n not in collapsed_raw}
 
@@ -102,7 +102,7 @@ def load_pdf(path, vlm):
         # flush: page-by-page progress must show up even when stdout is piped
         print(f"    {path.name} : page {i + 1}/{len(pdf)}...", flush=True)
         documents.append(
-            Document(page_content=llm_bases_img2text(vlm, _render_page(pdf[i]), "image/png", PDF_TRANSCRIPTION_PROMPT),
+            Document(page_content=llm_bases_img2text(vlm, pdf2png(pdf[i]), "image/png", PDF_TRANSCRIPTION_PROMPT),
                      metadata={"source": str(path), "page": i + 1}))
     warnings = validate_transcription(path, documents)
     for warning in warnings:
@@ -121,16 +121,15 @@ def load_text(path):
                      metadata={"source": str(path)})]
 
 
-def iter_files(docs_dirs):
+def iter_files(roots, suffixes=TEXT_SUFFIXES | IMAGE_SUFFIXES | {".pdf"}):
     """Yield (root, path) for every ingestable file, skipping private folders
     (any path component starting with "_")."""
-    for root in docs_dirs:
+    for root in roots:
         if not root.exists():
             print(f"⚠ racine introuvable, ignorée : {root}")
             continue
         for path in sorted(root.rglob("*")):
-            suffix = path.suffix.lower()
-            if suffix != ".pdf" and suffix not in TEXT_SUFFIXES | IMAGE_SUFFIXES:
+            if path.suffix.lower() not in suffixes:
                 continue
             if any(part.startswith("_") for part in path.relative_to(root).parts[:-1]):
                 continue
@@ -253,6 +252,8 @@ if __name__ == "__main__":
     if "--full" in sys.argv:
         vectordb.reset_collection()
 
-    sync(DOCS_DIRS, vectordb, vlm_client(config),
+    # Roots to index (Google Drive mounts) come from DOCS_DIRS in .env:
+    # personal paths stay out of the repo (see .env.example)
+    sync(docs_dirs(), vectordb, vlm_client(config),
          chunk_size=config["ingestion"]["chunk_size"],
          chunk_overlap=config["ingestion"]["chunk_overlap"])

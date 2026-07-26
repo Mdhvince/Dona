@@ -18,9 +18,9 @@ from src.agent import (build_graph, collect_queries, collect_sources,
                        current_turn, parse_citations, source_label,
                        tool_failures)
 from src.tools import confirmed_tool_names, load_mcp_tools, make_calendar_finder
-from src.config import (load_config, llm_client, router_client,
+from src.config import (load_config, docs_dirs, llm_client, router_client,
                         embedding_client, vlm_client)
-from src.ingest import DOCS_DIRS, sync
+from src.ingest import sync
 from src.retrieval import HybridRetriever
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -30,6 +30,9 @@ app = Flask(__name__)
 
 # RAG pipeline built once at startup, shared across requests
 config = load_config()
+# Read once at startup: the roots serve both the reindex and the
+# /source route, which only serves files under them
+DOCS_DIRS = docs_dirs()
 chat_llm = llm_client(config)
 router_llm = router_client(config)
 vectordb = Chroma(persist_directory=PERSIST_DIR,
