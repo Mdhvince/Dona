@@ -23,7 +23,7 @@ vision préserve l'association. Les images (.png/.jpg) passent par le même
 VLM : transcription du texte visible + courte description. Les prompts de
 transcription sont dans `src/prompt.py`.
 
-### Chunking structurel (`src/document_processing.py`)
+### Chunking structurel
 
 La transcription étant du Markdown, le découpage suit la structure :
 `MarkdownHeaderTextSplitter` sur les titres (une section reste entière,

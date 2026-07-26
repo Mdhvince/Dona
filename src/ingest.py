@@ -6,9 +6,9 @@ import pypdfium2 as pdfium
 from langchain_chroma import Chroma
 from langchain_core.documents import Document
 from langchain_core.messages import HumanMessage
+from langchain_text_splitters import MarkdownHeaderTextSplitter, RecursiveCharacterTextSplitter
 
 from src.config import load_config, docs_dirs, embedding_client, vlm_client
-from src.document_processing import markdown_splitter
 from src.prompt import IMAGE_TRANSCRIPTION_PROMPT, PDF_TRANSCRIPTION_PROMPT
 
 PERSIST_DIR = str(Path(__file__).parent.parent / "vectordb")
@@ -16,6 +16,8 @@ PERSIST_DIR = str(Path(__file__).parent.parent / "vectordb")
 TEXT_SUFFIXES = {".txt", ".md"}
 IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg"}
 RENDER_DPI = 150
+
+HEADERS = [("#", "h1"), ("##", "h2"), ("###", "h3")]
 
 
 def llm_bases_img2text(vlm, image_bytes, mime, prompt):
@@ -120,6 +122,33 @@ def load_file(path, vlm):
     return documents
 
 
+def create_markdown_based_chunks(documents, chunk_size, chunk_overlap):
+    """
+    Split documents into chunks based on Markdown headers, then further split into smaller chunks if necessary.
+    :param documents: A list of Document objects to be chunked.
+    :param chunk_size: The maximum size of each chunk.
+    :param chunk_overlap: The number of overlapping characters between chunks.
+    :return: A list of Document objects representing the chunks.
+    """
+    by_header = MarkdownHeaderTextSplitter(headers_to_split_on=HEADERS)
+    recursive = RecursiveCharacterTextSplitter(chunk_size=chunk_size,
+                                               chunk_overlap=chunk_overlap,
+                                               length_function=len)
+    chunks = []
+    for doc in documents:
+        for section in by_header.split_text(doc.page_content):
+            # Create some context for the chunk by prepending the header path to the content and add it to the metadata.
+            header_path = " > ".join(section.metadata[key] for _, key in HEADERS if key in section.metadata)
+
+            for piece in recursive.split_text(section.page_content):
+                metadata = dict(doc.metadata)
+                if header_path:
+                    metadata["section"] = header_path
+                    piece = f"{header_path}\n{piece}"
+                chunks.append(Document(page_content=piece, metadata=metadata))
+    return chunks
+
+
 def fetch_indexed_files(vectordb):
     """
     Fetch the files that have already been indexed, and their last modification time.
@@ -167,7 +196,7 @@ def index_file(vectordb, entry, path, vlm, chunk_size, chunk_overlap):
     chunks are deleted only once the new ones are ready, so a crash mid-file
     leaves the previous version in place."""
     documents = load_file(path, vlm)
-    chunks = markdown_splitter(documents, chunk_size=chunk_size, chunk_overlap=chunk_overlap)
+    chunks = create_markdown_based_chunks(documents, chunk_size=chunk_size, chunk_overlap=chunk_overlap)
     if entry:
         vectordb.delete(ids=entry["ids"])
     if chunks:
@@ -175,7 +204,7 @@ def index_file(vectordb, entry, path, vlm, chunk_size, chunk_overlap):
     return chunks
 
 
-def sync(docs_dirs, vectordb, vlm, chunk_size, chunk_overlap, on_progress=None):
+def ingest_documents(docs_dirs, vectordb, vlm, chunk_size, chunk_overlap, on_progress=None):
     """Incremental ingestion: transcribe and index new or modified files, drop
     the chunks of deleted files, leave everything else untouched. A full
     rebuild is simply sync() against an empty vector store.
@@ -208,7 +237,7 @@ def sync(docs_dirs, vectordb, vlm, chunk_size, chunk_overlap, on_progress=None):
             added += 1
         print(f"  indexé : {path.relative_to(root)} ({len(chunks)} chunks) [{done}/{total}]")
 
-    print(f"Synchronisation terminée : {added} ajouté(s), {updated} mis à jour, "
+    print(f"Ingestion terminée : {added} ajouté(s), {updated} mis à jour, "
           f"{len(removed)} retiré(s), {len(failures)} échec(s)")
     return {"added": added, "updated": updated, "removed": len(removed),
             "warnings": failures}
@@ -228,6 +257,6 @@ if __name__ == "__main__":
 
     # Roots to index (Google Drive mounts) come from DOCS_DIRS in .env:
     # personal paths stay out of the repo (see .env.example)
-    sync(docs_dirs(), vectordb, vlm_client(config),
-         chunk_size=config["ingestion"]["chunk_size"],
-         chunk_overlap=config["ingestion"]["chunk_overlap"])
+    ingest_documents(docs_dirs(), vectordb, vlm_client(config),
+                     chunk_size=config["ingestion"]["chunk_size"],
+                     chunk_overlap=config["ingestion"]["chunk_overlap"])

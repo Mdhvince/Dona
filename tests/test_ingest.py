@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from src.ingest import sync
+from src.ingest import ingest_documents
 
 
 class FakeVectordb:
@@ -38,7 +38,7 @@ def stored_db(doc, mtime):
 def test_sync_ignores_sub_second_mtime_jitter(tmp_path):
     root, doc = make_root(tmp_path)
     db = stored_db(doc, doc.stat().st_mtime - 0.5)
-    result = sync([root], db, vlm=None, chunk_size=1000, chunk_overlap=0)
+    result = ingest_documents([root], db, vlm=None, chunk_size=1000, chunk_overlap=0)
     assert result["added"] == 0 and result["updated"] == 0
     assert db.added == [] and db.deleted == []
 
@@ -46,7 +46,7 @@ def test_sync_ignores_sub_second_mtime_jitter(tmp_path):
 def test_sync_reindexes_really_modified_file(tmp_path):
     root, doc = make_root(tmp_path)
     db = stored_db(doc, doc.stat().st_mtime - 5)
-    result = sync([root], db, vlm=None, chunk_size=1000, chunk_overlap=0)
+    result = ingest_documents([root], db, vlm=None, chunk_size=1000, chunk_overlap=0)
     assert result["updated"] == 1
     assert db.deleted == [["c1"]]
     assert len(db.added) >= 1
@@ -55,7 +55,7 @@ def test_sync_reindexes_really_modified_file(tmp_path):
 def test_sync_indexes_new_file(tmp_path):
     root, doc = make_root(tmp_path)
     db = FakeVectordb()
-    result = sync([root], db, vlm=None, chunk_size=1000, chunk_overlap=0)
+    result = ingest_documents([root], db, vlm=None, chunk_size=1000, chunk_overlap=0)
     assert result["added"] == 1
     assert db.added[0].metadata["source"] == str(doc)
 
@@ -64,6 +64,6 @@ def test_sync_removes_deleted_file(tmp_path):
     root, _ = make_root(tmp_path)
     ghost = str(Path(root) / "disparu.txt")
     db = FakeVectordb(ids=["c9"], metadatas=[{"source": ghost, "mtime": 0}])
-    result = sync([root], db, vlm=None, chunk_size=1000, chunk_overlap=0)
+    result = ingest_documents([root], db, vlm=None, chunk_size=1000, chunk_overlap=0)
     assert result["removed"] == 1
     assert ["c9"] in db.deleted

@@ -1,11 +1,11 @@
 from langchain_core.documents import Document
 
-from src.document_processing import markdown_splitter
+from src.ingest import create_markdown_based_chunks
 
 
 def split(text, chunk_size=1000, chunk_overlap=0, metadata=None):
-    return markdown_splitter([Document(page_content=text, metadata=metadata or {})],
-                             chunk_size=chunk_size, chunk_overlap=chunk_overlap)
+    return create_markdown_based_chunks([Document(page_content=text, metadata=metadata or {})],
+                                        chunk_size=chunk_size, chunk_overlap=chunk_overlap)
 
 
 def test_short_section_stays_whole():
