@@ -20,6 +20,14 @@ RENDER_DPI = 150
 HEADERS = [("#", "h1"), ("##", "h2"), ("###", "h3")]
 
 
+class Ingestor:
+    def __init__(self, vectordb, vlm, chunk_size, chunk_overlap):
+        self.vectordb = vectordb
+        self.vlm = vlm
+        self.chunk_size = chunk_size
+        self.chunk_overlap = chunk_overlap
+
+
 def llm_bases_img2text(vlm, image_bytes, mime, prompt):
     """
     This function converts an image to text using a vision language model (VLM).
@@ -236,26 +244,19 @@ def ingest_documents(docs_dirs, vectordb, vlm, chunk_size, chunk_overlap, on_pro
             added += 1
         print(f"\t\tIndexed : {path.relative_to(root)} ({len(chunks)} chunks) [{done}/{total}]")
 
-    print(f"Ingestion done : {added} ajouté(s), {updated} mis à jour, "
-          f"{len(removed)} retiré(s), {len(failures)} échec(s)")
-    return {"added": added, "updated": updated, "removed": len(removed),
-            "warnings": failures}
+    print(f"Ingestion done : {added} added, {updated} updated, {len(removed)} removed, {len(failures)} failures")
+    return {"added": added, "updated": updated, "removed": len(removed), "warnings": failures}
 
 
 if __name__ == "__main__":
     import sys
 
     config = load_config()
-    vectordb = Chroma(persist_directory=PERSIST_DIR,
-                      embedding_function=embedding_client(config))
+    vectordb = Chroma(persist_directory=PERSIST_DIR, embedding_function=embedding_client(config))
 
-    # --full recreates the collection from scratch (required after an
-    # embedding model change: vector spaces are not compatible)
     if "--full" in sys.argv:
         vectordb.reset_collection()
 
-    # Roots to index (Google Drive mounts) come from DOCS_DIRS in .env:
-    # personal paths stay out of the repo (see .env.example)
     ingest_documents(docs_dirs(), vectordb, vlm_client(config),
                      chunk_size=config["ingestion"]["chunk_size"],
                      chunk_overlap=config["ingestion"]["chunk_overlap"])
