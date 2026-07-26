@@ -20,7 +20,7 @@ from src.agent import (build_graph, collect_queries, collect_sources,
 from src.tools import confirmed_tool_names, load_mcp_tools, make_calendar_finder
 from src.config import (load_config, docs_dirs, llm_client, router_client,
                         embedding_client, vlm_client)
-from src.ingest import ingest_documents
+from src.ingest import Ingestor
 from src.retrieval import HybridRetriever
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -73,9 +73,11 @@ reindex_lock = threading.Lock()
 
 def run_reindex():
     try:
-        result = ingest_documents(DOCS_DIRS, vectordb, vlm_client(config),
-                                  chunk_size=config["ingestion"]["chunk_size"],
-                                  chunk_overlap=config["ingestion"]["chunk_overlap"])
+        ingestor = Ingestor(vectordb,
+                            vlm_client(config),
+                            chunk_size=config["ingestion"]["chunk_size"],
+                            chunk_overlap=config["ingestion"]["chunk_overlap"])
+        result = ingestor.run(DOCS_DIRS)
         build_rag_agent()
         reindex_state["result"] = result
     except Exception as exc:
