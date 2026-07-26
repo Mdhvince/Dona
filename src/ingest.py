@@ -222,10 +222,9 @@ def ingest_documents(docs_dirs, vectordb, vlm, chunk_size, chunk_overlap, on_pro
     failures = []
     for done, (source, root, path) in enumerate(to_process, 1):
         try:
-            chunks = index_file(vectordb, indexed.get(source), path,
-                                vlm, chunk_size, chunk_overlap)
+            chunks = index_file(vectordb, indexed.get(source), path, vlm, chunk_size, chunk_overlap)
         except Exception as exc:
-            print(f"⚠ échec sur {path.name} : {exc}")
+            print(f"Failed on {path.name} : {exc}")
             failures.append({"file": path.name, "message": str(exc)})
             continue
         finally:
@@ -235,9 +234,9 @@ def ingest_documents(docs_dirs, vectordb, vlm, chunk_size, chunk_overlap, on_pro
             updated += 1
         else:
             added += 1
-        print(f"  indexé : {path.relative_to(root)} ({len(chunks)} chunks) [{done}/{total}]")
+        print(f"\t\tIndexed : {path.relative_to(root)} ({len(chunks)} chunks) [{done}/{total}]")
 
-    print(f"Ingestion terminée : {added} ajouté(s), {updated} mis à jour, "
+    print(f"Ingestion done : {added} ajouté(s), {updated} mis à jour, "
           f"{len(removed)} retiré(s), {len(failures)} échec(s)")
     return {"added": added, "updated": updated, "removed": len(removed),
             "warnings": failures}
