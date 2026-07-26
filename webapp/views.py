@@ -67,21 +67,15 @@ def build_rag_agent():
 build_rag_agent()
 
 # One reindex at a time, running in a background thread
-reindex_state = {"running": False, "done": 0, "total": 0, "current": None,
-                 "result": None, "error": None}
+reindex_state = {"running": False, "result": None, "error": None}
 reindex_lock = threading.Lock()
-
-
-def on_progress(done, total, current):
-    reindex_state.update(done=done, total=total, current=current)
 
 
 def run_reindex():
     try:
         result = ingest_documents(DOCS_DIRS, vectordb, vlm_client(config),
                                   chunk_size=config["ingestion"]["chunk_size"],
-                                  chunk_overlap=config["ingestion"]["chunk_overlap"],
-                                  on_progress=on_progress)
+                                  chunk_overlap=config["ingestion"]["chunk_overlap"])
         build_rag_agent()
         reindex_state["result"] = result
     except Exception as exc:
@@ -239,8 +233,7 @@ def reindex():
     A full rebuild is a long batch reserved for the CLI (--full)."""
     with reindex_lock:
         if not reindex_state["running"]:
-            reindex_state.update(running=True, done=0, total=0, current=None,
-                                 result=None, error=None)
+            reindex_state.update(running=True, result=None, error=None)
             threading.Thread(target=run_reindex, daemon=True).start()
     return jsonify(**reindex_state)
 

@@ -42,8 +42,9 @@ reconstruit après chaque ré-indexation.
 - `POST /reindex` : ingestion incrémentale dans un thread d'arrière-plan,
   un seul run à la fois. La reconstruction complète est réservée au
   terminal (batch de plusieurs heures, voir docs/rag.md).
-- `GET /reindex/status` : `{running, done, total, current, result, error}`,
-  pollé par le front pendant une ré-indexation.
+- `GET /reindex/status` : `{running, result, error}`, pollé par le front
+  pendant une ré-indexation (la progression détaillée reste dans le terminal
+  qui fait tourner le serveur).
 
 ## Comportement du front
 
@@ -76,8 +77,7 @@ reconstruit après chaque ré-indexation.
 - **Échecs d'outils** : `status: "error"` remplace la réponse par un message
   fixe ; `status: "partial"` insère un bandeau d'avertissement listant les
   outils en échec au-dessus de la réponse.
-- **Menu ⋮** : "Nouvelle conversation" et "Re-indexer" ; la progression
-  d'indexation s'affiche dans le header et les fichiers en échec dans un
+- **Menu ⋮** : "Nouvelle conversation" et "Re-indexer" ; l'état d'indexation s'affiche dans le header et les fichiers en échec dans un
   panneau dépliable sous celui-ci.
 
 ## Commandes

@@ -16,16 +16,7 @@ PERSIST_DIR = str(Path(__file__).parent.parent / "vectordb")
 TEXT_SUFFIXES = {".txt", ".md"}
 IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg"}
 RENDER_DPI = 150
-
 HEADERS = [("#", "h1"), ("##", "h2"), ("###", "h3")]
-
-
-class Ingestor:
-    def __init__(self, vectordb, vlm, chunk_size, chunk_overlap):
-        self.vectordb = vectordb
-        self.vlm = vlm
-        self.chunk_size = chunk_size
-        self.chunk_overlap = chunk_overlap
 
 
 def llm_bases_img2text(vlm, image_bytes, mime, prompt):
@@ -212,19 +203,17 @@ def index_file(vectordb, entry, path, vlm, chunk_size, chunk_overlap):
     return chunks
 
 
-def ingest_documents(docs_dirs, vectordb, vlm, chunk_size, chunk_overlap, on_progress=None):
+def ingest_documents(docs_dirs, vectordb, vlm, chunk_size, chunk_overlap):
     """Incremental ingestion: transcribe and index new or modified files, drop
     the chunks of deleted files, leave everything else untouched. A full
-    rebuild is simply sync() against an empty vector store.
-    on_progress(done, total, current_name) is called as files get processed."""
+    rebuild is simply an ingestion against an empty vector store. Progress is
+    printed as files go through."""
     indexed = fetch_indexed_files(vectordb)
     on_disk = {str(path): (root, path) for root, path in iter_files(docs_dirs)}
     removed = unindex_missing_files_from_disk(vectordb, indexed, on_disk)
 
     to_process = files_to_reindex(indexed, on_disk)
     total = len(to_process)
-    if on_progress:
-        on_progress(0, total, None)
 
     added = updated = 0
     failures = []
@@ -235,13 +224,10 @@ def ingest_documents(docs_dirs, vectordb, vlm, chunk_size, chunk_overlap, on_pro
             print(f"Failed on {path.name} : {exc}")
             failures.append({"file": path.name, "message": str(exc)})
             continue
-        finally:
-            if on_progress:
-                on_progress(done, total, path.name)
-        if source in indexed:
-            updated += 1
-        else:
-            added += 1
+
+        was_already_indexed = source in indexed
+        updated += 1 if was_already_indexed else 0
+        added += 1 if not was_already_indexed else 0
         print(f"\t\tIndexed : {path.relative_to(root)} ({len(chunks)} chunks) [{done}/{total}]")
 
     print(f"Ingestion done : {added} added, {updated} updated, {len(removed)} removed, {len(failures)} failures")

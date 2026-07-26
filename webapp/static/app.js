@@ -555,12 +555,8 @@ function showReindexState(state) {
   reindexButton.disabled = state.running;
   if (state.running) {
     reindexWarnings.hidden = true;
-    if (state.total > 0) {
-      const percent = Math.round((state.done / state.total) * 100);
-      reindexStatus.textContent = `Indexation... ${state.done}/${state.total} (${percent}%)`;
-    } else {
-      reindexStatus.textContent = "Indexation en cours...";
-    }
+    // Detail lives in the terminal running the server
+    reindexStatus.textContent = "Indexation en cours...";
     setTimeout(refreshReindexState, 3000);
   } else if (state.error) {
     reindexStatus.textContent = `Erreur : ${state.error}`;
