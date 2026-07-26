@@ -48,8 +48,7 @@ changement de modèle d'embedding (espaces vectoriels incompatibles).
   `config.toml` au chargement).
 - Formats : .pdf, .png, .jpg, .jpeg, .txt, .md.
 - Tout chemin traversant un dossier commençant par `_` est exclu (privé).
-- Métadonnées par chunk : `source`, `page`, `mtime`, `section`, et un tag
-  par niveau de dossier (`tag_1="05 - Clients"`), filtrables dans Chroma.
+- Métadonnées par chunk : `source`, `page`, `mtime`, `section`.
 
 ## Embeddings et base vectorielle
 

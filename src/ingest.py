@@ -100,8 +100,13 @@ def iter_files(roots, suffixes=TEXT_SUFFIXES | IMAGE_SUFFIXES | {".pdf"}):
             yield root, path
 
 
-def load_file(root, path, vlm):
-    """Transcribed documents of a single file, tagged with their metadata."""
+def load_file(path, vlm):
+    """
+    Load a file and return a list of Document objects. The loading method depends on the file type.
+    :param path: The path to the file.
+    :param vlm: The vision language model to use for processing images and PDFs.
+    :return: A list of Document objects
+    """
     suffix = path.suffix.lower()
     if suffix == ".pdf":
         documents = load_pdf(path, vlm)
@@ -109,50 +114,59 @@ def load_file(root, path, vlm):
         documents = load_image(path, vlm)
     else:
         documents = load_text(path)
-    # One tag per folder level under the root, filterable in Chroma:
-    # "05 - Clients/Techplaces/x.pdf" -> tag_1="05 - Clients", tag_2="Techplaces"
-    tags = {f"tag_{i}": name
-            for i, name in enumerate(path.relative_to(root).parts[:-1], 1)}
+
     for doc in documents:
-        doc.metadata.update(tags, mtime=path.stat().st_mtime)
+        doc.metadata["mtime"] = path.stat().st_mtime
     return documents
 
 
-def indexed_files(vectordb):
-    """{source: {ids, mtime}} for everything currently in the store: the
-    chunk ids to delete on update, and the mtime to compare against disk."""
+def fetch_indexed_files(vectordb):
+    """
+    Fetch the files that have already been indexed, and their last modification time.
+    :param vectordb: The vector database to query for indexed files.
+    :return: A dictionary mapping file paths to their indexed metadata, including chunk IDs and last modification time.
+    """
     stored = vectordb.get(include=["metadatas"])
     indexed = {}
     for chunk_id, metadata in zip(stored["ids"], stored["metadatas"]):
-        entry = indexed.setdefault(metadata["source"],
-                                   {"ids": [], "mtime": metadata.get("mtime", 0)})
+        entry = indexed.setdefault(metadata["source"], {"ids": [], "mtime": metadata.get("mtime", 0)})
         entry["ids"].append(chunk_id)
     return indexed
 
 
-def drop_deleted(vectordb, indexed, on_disk):
-    """Remove the chunks of files that no longer exist on disk."""
+def unindex_missing_files_from_disk(vectordb, indexed, on_disk):
+    """
+    Remove the chunks of files that no longer exist on disk.
+    :param vectordb: The vector database to update.
+    :param indexed: A dictionary of currently indexed files and their metadata.
+    :param on_disk: A dictionary of files currently present on disk.
+    :return: A list of removed files.
+    """
     removed = [source for source in indexed if source not in on_disk]
     for source in removed:
         vectordb.delete(ids=indexed[source]["ids"])
-        print(f"  retiré : {source}")
+        print(f"\t\tretiré : {source}")
     return removed
 
 
-def outdated_files(indexed, on_disk):
-    """Files to transcribe again: absent from the index, or modified since.
-    1s tolerance: cloud storage mounts (Google Drive) jitter sub-second
-    mtimes between stat calls, which would re-index the same files forever."""
+def files_to_reindex(indexed, on_disk):
+    """
+    Determine which files need to be reindexed based on their presence on disk and their last modification time.
+    If a file is new or has been modified since it was last indexed, it will be reindexed.
+    :param indexed: A dictionary of currently indexed files and their metadata.
+    :param on_disk: A dictionary of files currently present on disk.
+    :return: A list of tuples (source, root, path) for files that need to be reindexed.
+    """
     return [(source, root, path) for source, (root, path) in on_disk.items()
             if source not in indexed
             or path.stat().st_mtime > indexed[source]["mtime"] + 1]
 
 
-def index_file(vectordb, entry, root, path, vlm, chunk_size, chunk_overlap):
+def index_file(vectordb, entry, path, vlm, chunk_size, chunk_overlap):
     """Transcribe one file and replace its chunks in the store. The old
     chunks are deleted only once the new ones are ready, so a crash mid-file
     leaves the previous version in place."""
-    documents = load_file(root, path, vlm)
+    documents = load_file(path, vlm)
     chunks = markdown_splitter(documents, chunk_size=chunk_size, chunk_overlap=chunk_overlap)
     if entry:
         vectordb.delete(ids=entry["ids"])
@@ -166,11 +180,11 @@ def sync(docs_dirs, vectordb, vlm, chunk_size, chunk_overlap, on_progress=None):
     the chunks of deleted files, leave everything else untouched. A full
     rebuild is simply sync() against an empty vector store.
     on_progress(done, total, current_name) is called as files get processed."""
-    indexed = indexed_files(vectordb)
+    indexed = fetch_indexed_files(vectordb)
     on_disk = {str(path): (root, path) for root, path in iter_files(docs_dirs)}
-    removed = drop_deleted(vectordb, indexed, on_disk)
+    removed = unindex_missing_files_from_disk(vectordb, indexed, on_disk)
 
-    to_process = outdated_files(indexed, on_disk)
+    to_process = files_to_reindex(indexed, on_disk)
     total = len(to_process)
     if on_progress:
         on_progress(0, total, None)
@@ -179,7 +193,7 @@ def sync(docs_dirs, vectordb, vlm, chunk_size, chunk_overlap, on_progress=None):
     failures = []
     for done, (source, root, path) in enumerate(to_process, 1):
         try:
-            chunks = index_file(vectordb, indexed.get(source), root, path,
+            chunks = index_file(vectordb, indexed.get(source), path,
                                 vlm, chunk_size, chunk_overlap)
         except Exception as exc:
             print(f"⚠ échec sur {path.name} : {exc}")
