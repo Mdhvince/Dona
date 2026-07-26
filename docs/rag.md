@@ -11,7 +11,11 @@ recherche hybride. Tout tourne en local via Ollama.
    html, txt, md)
 ```
 
-## Ingestion (`src/ingest.py`)
+## Ingestion (`src/ingestor.py`)
+
+Les helpers sans état - parcours des racines, rendu PDF vers PNG, appel du
+VLM - vivent dans `src/ingestion_utilities.py` ; `src/ingestor.py` ne contient
+que la classe `Ingestor` et les formats qu'elle reconnaît.
 
 ### Transcription par modèle vision
 
@@ -98,8 +102,8 @@ après chaque ré-indexation.
 ## Commandes
 
 ```bash
-uv run python -m src.ingest                         # ingestion incrémentale
-caffeinate -i uv run python -m src.ingest --full    # reconstruction complète (~30s/page)
+uv run python -m src.ingestor                         # ingestion incrémentale
+caffeinate -i uv run python -m src.ingestor --full    # reconstruction complète (~30s/page)
 ```
 
 ## Limites connues

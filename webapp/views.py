@@ -20,7 +20,7 @@ from src.agent import (build_graph, collect_queries, collect_sources,
 from src.tools import confirmed_tool_names, load_mcp_tools, make_calendar_finder
 from src.config import (load_config, docs_dirs, llm_client, router_client,
                         embedding_client, vlm_client)
-from src.ingest import Ingestor
+from src.ingestor import Ingestor
 from src.retrieval import HybridRetriever
 
 ROOT = Path(__file__).resolve().parent.parent

@@ -1,6 +1,6 @@
 from langchain_core.documents import Document
 
-from src.ingest import Ingestor
+from src.ingestor import Ingestor
 
 
 def split(text, chunk_size=1000, chunk_overlap=0, metadata=None):
