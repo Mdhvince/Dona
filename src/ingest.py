@@ -54,7 +54,7 @@ def pdf2png(page, dpi=RENDER_DPI):
     return buffer.getvalue()
 
 
-def iter_files(roots, suffixes=SUFFIXES):
+def iter_files(roots, suffixes):
     """
     Yield (root, path) for every ingestable file, skipping private folders (any path component starting with "_").
     :param roots: A list of root directories to search for files.
@@ -254,7 +254,7 @@ class Ingestor:
         :return: A summary of the run: added, updated, removed counts and the files that failed.
         """
         indexed = self.fetch_indexed_files()
-        on_disk = {str(path): (root, path) for root, path in iter_files(docs_dirs)}
+        on_disk = {str(path): (root, path) for root, path in iter_files(docs_dirs, suffixes=SUFFIXES)}
         removed = self.unindex_missing_files_from_disk(indexed, on_disk)
 
         to_process = self.files_to_reindex(indexed, on_disk)
