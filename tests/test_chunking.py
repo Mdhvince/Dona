@@ -36,3 +36,15 @@ def test_text_without_headers_still_chunks():
     chunks = split("juste du texte brut sans titre")
     assert len(chunks) == 1
     assert "section" not in chunks[0].metadata
+
+
+# --- plain text ---
+
+def test_plain_text_is_split_and_keeps_its_metadata():
+    ingestor = Ingestor(vectordb=None, vlm=None, chunk_size=100, chunk_overlap=0)
+    document = Document(page_content="\n\n".join("paragraphe " + "x" * 80 for _ in range(5)),
+                        metadata={"source": "/tmp/notes.txt"})
+    chunks = ingestor.create_text_based_chunks([document])
+    assert len(chunks) > 1
+    assert all(chunk.metadata["source"] == "/tmp/notes.txt" for chunk in chunks)
+    assert all("section" not in chunk.metadata for chunk in chunks)

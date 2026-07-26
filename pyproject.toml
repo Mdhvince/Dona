@@ -17,6 +17,7 @@ dependencies = [
     "langgraph-checkpoint-sqlite>=3.1.0",
     "langgraph-sdk>=0.4.2",
     "markdown>=3.10.2",
+    "markitdown[docx,pptx]>=0.1.6",
     "nh3>=0.3.6",
     "nltk>=3.10.0",
     "pillow>=12.3.0",

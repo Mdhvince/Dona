@@ -67,3 +67,24 @@ def test_sync_removes_deleted_file(tmp_path):
     result = Ingestor(db, vlm=None, chunk_size=1000, chunk_overlap=0).run([root])
     assert result["removed"] == 1
     assert ["c9"] in db.deleted
+
+
+# --- format routing ---
+
+def loader():
+    return Ingestor(vectordb=None, vlm=None, chunk_size=1000, chunk_overlap=0)
+
+
+def test_plain_text_and_markdown_are_routed_apart(tmp_path):
+    (tmp_path / "notes.txt").write_text("du texte", encoding="utf-8")
+    (tmp_path / "notes.md").write_text("# Titre\ndu texte", encoding="utf-8")
+    assert loader().load_file(tmp_path / "notes.txt")[0] == "text"
+    assert loader().load_file(tmp_path / "notes.md")[0] == "markdown"
+
+
+def test_html_is_converted_to_markdown(tmp_path):
+    path = tmp_path / "page.html"
+    path.write_text("<h1>Titre</h1><p>contenu</p>", encoding="utf-8")
+    fmt, documents = loader().load_file(path)
+    assert fmt == "markdown"
+    assert documents[0].page_content.startswith("# Titre")

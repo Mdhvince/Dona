@@ -7,14 +7,19 @@ from langchain_chroma import Chroma
 from langchain_core.documents import Document
 from langchain_core.messages import HumanMessage
 from langchain_text_splitters import MarkdownHeaderTextSplitter, RecursiveCharacterTextSplitter
+from markitdown import MarkItDown
 
 from src.config import load_config, docs_dirs, embedding_client, vlm_client
 from src.prompt import IMAGE_TRANSCRIPTION_PROMPT, PDF_TRANSCRIPTION_PROMPT
 
 PERSIST_DIR = str(Path(__file__).parent.parent / "vectordb")
 
-TEXT_SUFFIXES = {".txt", ".md"}
+MARKDOWN_SUFFIXES = {".md"}
+TEXT_SUFFIXES = {".txt"}
 IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg"}
+MARKUP_SUFFIXES = {".docx", ".pptx", ".html", ".htm"}
+INGESTABLE_SUFFIXES = (MARKDOWN_SUFFIXES | TEXT_SUFFIXES | IMAGE_SUFFIXES
+                       | MARKUP_SUFFIXES | {".pdf"})
 RENDER_DPI = 150
 
 HEADERS = [("#", "h1"), ("##", "h2"), ("###", "h3")]
@@ -50,11 +55,11 @@ def pdf2png(page, dpi=RENDER_DPI):
     return buffer.getvalue()
 
 
-def iter_files(roots, suffixes=TEXT_SUFFIXES | IMAGE_SUFFIXES | {".pdf"}):
+def iter_files(roots, suffixes=INGESTABLE_SUFFIXES):
     """
     Yield (root, path) for every ingestable file, skipping private folders (any path component starting with "_").
     :param roots: A list of root directories to search for files.
-    :param suffixes: A set of file suffixes to include (default includes text, image, and PDF files).
+    :param suffixes: A set of file suffixes to include (default covers every ingestable format).
     :return: A generator yielding tuples of (root, path)
     """
     for root in roots:
@@ -109,23 +114,39 @@ class Ingestor:
     def ingest_text(self, path):
         return [Document(page_content=path.read_text(encoding="utf-8"), metadata={"source": str(path)})]
 
-    def load_file(self, path):
+    def ingest_markup(self, path):
         """
-        Load a file and return a list of Document objects. The loading method depends on the file type.
+        Read a file whose structure is already written in markup (OOXML, HTML) and turn it into
+        Markdown, the format specifics being handled by MarkItDown.
         :param path: The path to the file.
         :return: A list of Document objects
         """
+        text = MarkItDown().convert(str(path)).text_content
+        return [Document(page_content=text, metadata={"source": str(path)})]
+
+    def load_file(self, path):
+        """
+        Load a file and return the format it produced along with its Document objects. The chunking
+        strategy follows that format, not the original suffix: a PDF transcribed by the vision model
+        is Markdown, and is chunked as such.
+        :param path: The path to the file.
+        :return: A tuple (format, list of Document objects)
+        """
         suffix = path.suffix.lower()
         if suffix == ".pdf":
-            documents = self.ingest_pdf(path)
+            fmt, documents = "markdown", self.ingest_pdf(path)
         elif suffix in IMAGE_SUFFIXES:
-            documents = self.ingest_image(path)
+            fmt, documents = "markdown", self.ingest_image(path)
+        elif suffix in MARKUP_SUFFIXES:
+            fmt, documents = "markdown", self.ingest_markup(path)
+        elif suffix in MARKDOWN_SUFFIXES:
+            fmt, documents = "markdown", self.ingest_text(path)
         else:
-            documents = self.ingest_text(path)
+            fmt, documents = "text", self.ingest_text(path)
 
         for doc in documents:
             doc.metadata["mtime"] = path.stat().st_mtime
-        return documents
+        return fmt, documents
 
     def create_markdown_based_chunks(self, documents):
         """
@@ -150,6 +171,28 @@ class Ingestor:
                         piece = f"{header_path}\n{piece}"
                     chunks.append(Document(page_content=piece, metadata=metadata))
         return chunks
+
+    def create_text_based_chunks(self, documents):
+        """
+        Split documents that carry no structure, on paragraph then sentence then word boundaries.
+        :param documents: A list of Document objects to be chunked.
+        :return: A list of Document objects representing the chunks.
+        """
+        recursive = RecursiveCharacterTextSplitter(chunk_size=self.chunk_size,
+                                                   chunk_overlap=self.chunk_overlap,
+                                                   length_function=len)
+        return recursive.split_documents(documents)
+
+    def chunk_documents(self, fmt, documents):
+        """
+        Route the documents to the splitter matching the format their loader produced.
+        :param fmt: The format produced by the loader.
+        :param documents: A list of Document objects to be chunked.
+        :return: A list of Document objects representing the chunks.
+        """
+        if fmt == "text":
+            return self.create_text_based_chunks(documents)
+        return self.create_markdown_based_chunks(documents)
 
     def fetch_indexed_files(self):
         """
@@ -196,8 +239,8 @@ class Ingestor:
         :param path: The path to the file.
         :return: A list of Document objects representing the chunks.
         """
-        documents = self.load_file(path)
-        chunks = self.create_markdown_based_chunks(documents)
+        fmt, documents = self.load_file(path)
+        chunks = self.chunk_documents(fmt, documents)
         if entry:
             self.vectordb.delete(ids=entry["ids"])
         if chunks:
