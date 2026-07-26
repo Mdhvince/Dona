@@ -1,13 +1,11 @@
 import base64
 import io
-import re
 from pathlib import Path
 
 import pypdfium2 as pdfium
 from langchain_chroma import Chroma
 from langchain_core.documents import Document
 from langchain_core.messages import HumanMessage
-from pypdf import PdfReader
 
 from src.config import load_config, docs_dirs, embedding_client, vlm_client
 from src.document_processing import markdown_splitter
@@ -50,64 +48,26 @@ def pdf2png(page, dpi=RENDER_DPI):
     return buffer.getvalue()
 
 
-def _collapse_digit_groups(text):
-    """Glue thousands-separated numbers back together: "9 570" -> "9570"."""
-    return re.sub(r"(?<=\d)\s+(?=\d)", "", text)
-
-
-def extract_numbers(text):
-    return set(re.findall(r"\d+", text))
-
-
-def find_invented_numbers(raw_text, transcribed_texts):
-    """Numbers present in the transcriptions but absent from the reference
-    text. Two granularities (raw and collapsed) tolerate digit-grouping
-    differences, plus a substring test for long identifiers that the
-    reference segments differently. Pure function, testable without a PDF."""
-    collapsed_raw = _collapse_digit_groups(raw_text)
-    reference = extract_numbers(raw_text) | extract_numbers(collapsed_raw)
-    transcribed = set()
-    for text in transcribed_texts:
-        transcribed |= extract_numbers(_collapse_digit_groups(text))
-    return {n for n in transcribed - reference
-            if len(n) >= 2 and n not in collapsed_raw}
-
-
-def validate_transcription(path, documents):
-    """Anti-hallucination guard: every number transcribed by the VLM must
-    exist in the PDF text layer, which holds the real values even when
-    classic extraction detaches them from their labels.
-    Returns a list of warnings; empty when everything checks out."""
-    try:
-        raw = "\n".join(page.extract_text() or "" for page in PdfReader(str(path)).pages)
-    except Exception as exc:
-        return [f"couche texte illisible ({exc}) : transcription non vérifiable"]
-    if not raw.strip():
-        return ["PDF scanné sans couche texte : transcription non vérifiable, contrôle manuel conseillé"]
-
-    invented = find_invented_numbers(raw, [doc.page_content for doc in documents])
-    if invented:
-        return ["nombres absents de la couche texte : " + ", ".join(sorted(invented)[:10])]
-    return []
-
-
 def load_pdf(path, vlm):
-    """Render each page to an image and let the vision model transcribe it to
-    Markdown: the only approach that keeps labels and values together on
-    column-based PDFs (tax notices...) where both text extractors and layout
-    parsers fail."""
+    """
+    Render each page to an image and let the vision model transcribe it to Markdown.
+    :param path: The path to the PDF file.
+    :param vlm: The vision language model to use for transcription.
+    :return: A list of Document objects
+    """
     pdf = pdfium.PdfDocument(str(path))
     documents = []
-    for i in range(len(pdf)):
-        # flush: page-by-page progress must show up even when stdout is piped
-        print(f"    {path.name} : page {i + 1}/{len(pdf)}...", flush=True)
-        documents.append(
-            Document(page_content=llm_bases_img2text(vlm, pdf2png(pdf[i]), "image/png", PDF_TRANSCRIPTION_PROMPT),
-                     metadata={"source": str(path), "page": i + 1}))
-    warnings = validate_transcription(path, documents)
-    for warning in warnings:
-        print(f"  ⚠ validation {path.name} : {warning}")
-    return documents, warnings
+    for page_index in range(len(pdf)):
+        print(f"\t\t{path.name} : page {page_index + 1}/{len(pdf)}...", flush=True)
+        png_version = pdf2png(pdf[page_index])
+        text_version = llm_bases_img2text(vlm, png_version, "image/png", PDF_TRANSCRIPTION_PROMPT)
+
+        if not (text_version or "").strip():
+            print(f"Page {page_index + 1} vide après transcription", flush=True)
+            continue
+
+        documents.append(Document(page_content=text_version,  metadata={"source": str(path), "page": page_index + 1}))
+    return documents
 
 
 def load_image(path, vlm):
@@ -117,19 +77,23 @@ def load_image(path, vlm):
 
 
 def load_text(path):
-    return [Document(page_content=path.read_text(encoding="utf-8"),
-                     metadata={"source": str(path)})]
+    return [Document(page_content=path.read_text(encoding="utf-8"), metadata={"source": str(path)})]
 
 
 def iter_files(roots, suffixes=TEXT_SUFFIXES | IMAGE_SUFFIXES | {".pdf"}):
-    """Yield (root, path) for every ingestable file, skipping private folders
-    (any path component starting with "_")."""
+    """
+    Yield (root, path) for every ingestable file, skipping private folders (any path component starting with "_").
+    :param roots: A list of root directories to search for files.
+    :param suffixes: A set of file suffixes to include (default includes text, image, and PDF files).
+    :return: A generator yielding tuples of (root, path)
+    """
     for root in roots:
         if not root.exists():
-            print(f"⚠ racine introuvable, ignorée : {root}")
+            print(f"Chemin introuvable, ignorée : {root}")
             continue
         for path in sorted(root.rglob("*")):
             if path.suffix.lower() not in suffixes:
+                print(f"\t\t{path.name} : suffixe ignoré", flush=True)
                 continue
             if any(part.startswith("_") for part in path.relative_to(root).parts[:-1]):
                 continue
@@ -137,12 +101,10 @@ def iter_files(roots, suffixes=TEXT_SUFFIXES | IMAGE_SUFFIXES | {".pdf"}):
 
 
 def load_file(root, path, vlm):
-    """Returns (documents, warnings) for a single file; warnings only come
-    from the PDF transcription validation."""
+    """Transcribed documents of a single file, tagged with their metadata."""
     suffix = path.suffix.lower()
-    warnings = []
     if suffix == ".pdf":
-        documents, warnings = load_pdf(path, vlm)
+        documents = load_pdf(path, vlm)
     elif suffix in IMAGE_SUFFIXES:
         documents = load_image(path, vlm)
     else:
@@ -151,10 +113,9 @@ def load_file(root, path, vlm):
     # "05 - Clients/Techplaces/x.pdf" -> tag_1="05 - Clients", tag_2="Techplaces"
     tags = {f"tag_{i}": name
             for i, name in enumerate(path.relative_to(root).parts[:-1], 1)}
-    # mtime lets sync() detect modified files on the next run
     for doc in documents:
         doc.metadata.update(tags, mtime=path.stat().st_mtime)
-    return documents, warnings
+    return documents
 
 
 def indexed_files(vectordb):
@@ -188,16 +149,16 @@ def outdated_files(indexed, on_disk):
 
 
 def index_file(vectordb, entry, root, path, vlm, chunk_size, chunk_overlap):
-    """Transcribe one file and replace its chunks in the store. Returns its
-    warnings; the old chunks are deleted only once the new ones are ready,
-    so a crash mid-file leaves the previous version in place."""
-    documents, warnings = load_file(root, path, vlm)
+    """Transcribe one file and replace its chunks in the store. The old
+    chunks are deleted only once the new ones are ready, so a crash mid-file
+    leaves the previous version in place."""
+    documents = load_file(root, path, vlm)
     chunks = markdown_splitter(documents, chunk_size=chunk_size, chunk_overlap=chunk_overlap)
     if entry:
         vectordb.delete(ids=entry["ids"])
     if chunks:
         vectordb.add_documents(chunks)
-    return chunks, warnings
+    return chunks
 
 
 def sync(docs_dirs, vectordb, vlm, chunk_size, chunk_overlap, on_progress=None):
@@ -215,19 +176,18 @@ def sync(docs_dirs, vectordb, vlm, chunk_size, chunk_overlap, on_progress=None):
         on_progress(0, total, None)
 
     added = updated = 0
-    all_warnings = []
+    failures = []
     for done, (source, root, path) in enumerate(to_process, 1):
         try:
-            chunks, warnings = index_file(vectordb, indexed.get(source), root, path,
-                                          vlm, chunk_size, chunk_overlap)
+            chunks = index_file(vectordb, indexed.get(source), root, path,
+                                vlm, chunk_size, chunk_overlap)
         except Exception as exc:
             print(f"⚠ échec sur {path.name} : {exc}")
-            all_warnings.append({"file": path.name, "message": f"échec : {exc}"})
+            failures.append({"file": path.name, "message": str(exc)})
             continue
         finally:
             if on_progress:
                 on_progress(done, total, path.name)
-        all_warnings.extend({"file": path.name, "message": warning} for warning in warnings)
         if source in indexed:
             updated += 1
         else:
@@ -235,9 +195,9 @@ def sync(docs_dirs, vectordb, vlm, chunk_size, chunk_overlap, on_progress=None):
         print(f"  indexé : {path.relative_to(root)} ({len(chunks)} chunks) [{done}/{total}]")
 
     print(f"Synchronisation terminée : {added} ajouté(s), {updated} mis à jour, "
-          f"{len(removed)} retiré(s), {len(all_warnings)} alerte(s)")
+          f"{len(removed)} retiré(s), {len(failures)} échec(s)")
     return {"added": added, "updated": updated, "removed": len(removed),
-            "warnings": all_warnings}
+            "warnings": failures}
 
 
 if __name__ == "__main__":

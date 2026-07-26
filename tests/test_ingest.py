@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from src.ingest import find_invented_numbers, sync
+from src.ingest import sync
 
 
 class FakeVectordb:
@@ -19,25 +19,6 @@ class FakeVectordb:
 
     def add_documents(self, documents):
         self.added.extend(documents)
-
-
-# --- find_invented_numbers ---
-
-def test_thousands_separated_numbers_match():
-    assert find_invented_numbers("Solde : 9 570 euros", ["Solde 9570"]) == set()
-
-
-def test_long_identifier_matches_by_substring():
-    raw = "numero fiscal 30 17 135 444 330 suite"
-    assert find_invented_numbers(raw, ["N 3017135444330"]) == set()
-
-
-def test_invented_number_is_detected():
-    assert find_invented_numbers("total 100", ["total 9999"]) == {"9999"}
-
-
-def test_single_digits_are_ignored():
-    assert find_invented_numbers("aucun nombre ici", ["point 7"]) == set()
 
 
 # --- sync mtime tolerance ---

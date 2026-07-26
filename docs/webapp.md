@@ -77,7 +77,7 @@ reconstruit après chaque ré-indexation.
   fixe ; `status: "partial"` insère un bandeau d'avertissement listant les
   outils en échec au-dessus de la réponse.
 - **Menu ⋮** : "Nouvelle conversation" et "Re-indexer" ; la progression
-  d'indexation s'affiche dans le header et les alertes de validation dans un
+  d'indexation s'affiche dans le header et les fichiers en échec dans un
   panneau dépliable sous celui-ci.
 
 ## Commandes

@@ -5,9 +5,9 @@ sont transcrits, découpés, embeddés dans Chroma, et interrogés par une
 recherche hybride. Tout tourne en local via Ollama.
 
 ```
-  Google Drive ──> transcription VLM ──> validation ──> chunking ──> embeddings ──> Chroma
-  (PDF, images,      (qwen3.5:9b)      anti-hallu     structurel   (qwen3-emb:8b)
-   txt, md)                                            Markdown
+  Google Drive ──> transcription VLM ──> chunking ──> embeddings ──> Chroma
+  (PDF, images,        (glm-ocr)        structurel      (bge-m3)
+   txt, md)                              Markdown
 ```
 
 ## Ingestion (`src/ingest.py`)
@@ -22,16 +22,6 @@ documents administratifs en colonnes (avis d'imposition...) ; seul un modèle
 vision préserve l'association. Les images (.png/.jpg) passent par le même
 VLM : transcription du texte visible + courte description. Les prompts de
 transcription sont dans `src/prompt.py`.
-
-### Validation anti-hallucination (`validate_transcription`)
-
-Tout nombre présent dans la transcription doit exister dans la couche texte
-du PDF (pypdf), qui contient les vraies valeurs même mal placées.
-Comparaison à deux granularités (brute et chiffres recollés "9 570" ->
-"9570") plus un test par sous-chaîne pour les identifiants longs. Un nombre
-introuvable déclenche un avertissement (console + UI via `warnings` du
-résultat de sync) ; un PDF scanné sans couche texte est signalé comme non
-vérifiable.
 
 ### Chunking structurel (`src/document_processing.py`)
 
@@ -93,6 +83,5 @@ caffeinate -i uv run python -m src.ingest --full    # reconstruction complète (
 ## Limites connues
 
 - Pas d'évaluation systématique (jeu de questions/réponses de référence).
-- La validation numérique ne couvre ni les PDF scannés sans couche texte ni
-  les erreurs de transcription non numériques.
-- Un document signalé par la validation mérite un contrôle visuel.
+- Aucune vérification automatique des transcriptions : une erreur du modèle
+  vision se propage silencieusement dans l'index.
