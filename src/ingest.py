@@ -18,8 +18,7 @@ MARKDOWN_SUFFIXES = {".md"}
 TEXT_SUFFIXES = {".txt"}
 IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg"}
 MARKUP_SUFFIXES = {".docx", ".pptx", ".html", ".htm"}
-INGESTABLE_SUFFIXES = (MARKDOWN_SUFFIXES | TEXT_SUFFIXES | IMAGE_SUFFIXES
-                       | MARKUP_SUFFIXES | {".pdf"})
+SUFFIXES = MARKDOWN_SUFFIXES | TEXT_SUFFIXES | IMAGE_SUFFIXES | MARKUP_SUFFIXES | {".pdf"}
 RENDER_DPI = 150
 
 HEADERS = [("#", "h1"), ("##", "h2"), ("###", "h3")]
@@ -55,7 +54,7 @@ def pdf2png(page, dpi=RENDER_DPI):
     return buffer.getvalue()
 
 
-def iter_files(roots, suffixes=INGESTABLE_SUFFIXES):
+def iter_files(roots, suffixes=SUFFIXES):
     """
     Yield (root, path) for every ingestable file, skipping private folders (any path component starting with "_").
     :param roots: A list of root directories to search for files.
