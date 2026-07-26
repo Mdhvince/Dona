@@ -72,7 +72,7 @@ def build_graph(retriever, llm, router_llm, checkpointer=None, extra_tools=(),
     talk answered directly by a no-thinking call, everything else by the
     tool agent (citations, confirmations, fresh retrieval). The checkpointer
     sits on the parent graph; interrupts and resumes propagate through it."""
-    agent = build_agent(retriever, llm, extra_tools=extra_tools,
+    agent_with_tools = build_agent(retriever, llm, extra_tools=extra_tools,
                         confirm_tools=confirm_tools)
 
     def conversation(state):
@@ -82,10 +82,12 @@ def build_graph(retriever, llm, router_llm, checkpointer=None, extra_tools=(),
 
     graph = StateGraph(MessagesState)
     graph.add_node("conversation", conversation)
-    graph.add_node("agent", agent)
+    graph.add_node("agent", agent_with_tools)
     graph.add_conditional_edges(
-        START, lambda state: route(router_llm, state["messages"][-1].content),
-        {"conversation": "conversation", "agent": "agent"})
+        START,
+        lambda state: route(router_llm, state["messages"][-1].content),
+        {"conversation": "conversation", "agent": "agent"}
+    )
     graph.add_edge("conversation", END)
     graph.add_edge("agent", END)
     return graph.compile(checkpointer=checkpointer)
