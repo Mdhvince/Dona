@@ -16,8 +16,8 @@ from langgraph.types import Command
 
 from src.agent import (build_graph, collect_queries, collect_sources,
                        current_turn, parse_citations, source_label,
-                       tool_failures)
-from src.tools import (load_mcp_tools, make_calendar_finder, make_rag_tool,
+                       tool_outcomes)
+from src.tools import (build_calendar_finder, build_rag_tool, load_mcp_tools,
                        tools_needing_confirmation)
 from src.config import (load_config, docs_dirs, llm_client, router_client,
                         embedding_client, vlm_client)
@@ -47,7 +47,7 @@ checkpointer = SqliteSaver(sqlite3.connect(str(ROOT / "conversations.db"),
                                            check_same_thread=False))
 # Loaded once at startup: stateless, so reindex rebuilds reuse them as is
 mcp_tools = load_mcp_tools(config)
-calendar_finder = make_calendar_finder(mcp_tools)
+calendar_finder = build_calendar_finder(mcp_tools)
 extra_tools = mcp_tools + ([calendar_finder] if calendar_finder else [])
 
 
@@ -61,7 +61,7 @@ def build_rag_agent():
         agent = None
         return
     retriever = HybridRetriever.from_vectordb(vectordb, **config["retriever"])
-    tools = [make_rag_tool(retriever), *extra_tools]
+    tools = [build_rag_tool(retriever), *extra_tools]
     agent = build_graph(chat_llm, router_llm, tools, checkpointer,
                         tools_needing_confirmation=tools_needing_confirmation(config))
 
@@ -171,7 +171,7 @@ def agent_events(agent_input, thread_id):
     # Candidates from the whole thread: a follow-up answered from memory may
     # legitimately cite an earlier turn's document
     text, sources = parse_citations(text, collect_sources(state["messages"]))
-    failed, succeeded = tool_failures(turn)
+    failed, succeeded = tool_outcomes(turn)
     status = "ok" if not failed else ("partial" if succeeded else "error")
     # nh3 strips raw HTML that python-markdown lets through (XSS via corpus)
     yield json.dumps({

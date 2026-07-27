@@ -168,7 +168,7 @@ def _event_line(account, event):
             f"{end.get('dateTime', end.get('date', '?'))}")
 
 
-def make_calendar_finder(mcp_tools, max_results=30):
+def build_calendar_finder(mcp_tools, max_results=30):
     """Composite tool encoding the event-search strategy in code instead of
     relying on model discipline: full-text search on every account with each
     discriminating term, fall back to a wide listing when searches are
@@ -245,7 +245,7 @@ def make_calendar_finder(mcp_tools, max_results=30):
     return calendar_find_event
 
 
-def make_rag_tool(retriever):
+def build_rag_tool(retriever):
     """Builds the RAG tool around an already constructed retriever, so the
     tool schema only exposes what the agent must decide: the queries."""
 

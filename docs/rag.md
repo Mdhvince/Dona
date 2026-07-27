@@ -28,7 +28,7 @@ vision préserve l'association. Les images (.png/.jpg) passent par le même
 VLM : transcription du texte visible + courte description. Les prompts de
 transcription sont dans `src/prompt.py`.
 
-### Formats balisés (`ingest_markup`)
+### Formats balisés (`load_markup`)
 
 Les .docx, .pptx et .html portent déjà leur structure dans du balisage
 (OOXML, HTML). MarkItDown la lit et la rend en Markdown : styles de titres
@@ -37,7 +37,7 @@ VLM ni heuristique sur ces formats.
 
 ### Chunking par format
 
-`load_file()` renvoie le format qu'il a produit, et `chunk_documents()`
+`load_file()` renvoie le format qu'il a produit, et `create_chunks()`
 aiguille vers le découpeur correspondant. La stratégie suit le format de
 **sortie** du chargeur, jamais le suffixe d'origine : un PDF transcrit par
 le VLM est du Markdown, et se découpe comme tel.

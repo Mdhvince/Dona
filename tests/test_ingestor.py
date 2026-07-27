@@ -43,12 +43,12 @@ def ingestor():
 
 
 def transcribe_pages(monkeypatch, transcriptions):
-    """Wire ingest_pdf onto fake pages, each transcribed to the given text."""
+    """Wire load_pdf onto fake pages, each transcribed to the given text."""
     monkeypatch.setattr("src.ingestor.pdfium.PdfDocument",
                         lambda _path: FakePdf([f"page{i}" for i in range(len(transcriptions))]))
-    monkeypatch.setattr("src.ingestor.pdf2png", lambda page: page.encode())
+    monkeypatch.setattr("src.ingestor.render_page_to_png", lambda page: page.encode())
     pages = iter(transcriptions)
-    monkeypatch.setattr("src.ingestor.llm_bases_img2text",
+    monkeypatch.setattr("src.ingestor.transcribe_image",
                         lambda vlm, image, mime, prompt: next(pages))
 
 
@@ -57,7 +57,7 @@ def transcribe_pages(monkeypatch, transcriptions):
 def test_text_is_read_as_utf8(tmp_path, ingestor):
     path = tmp_path / "notes.txt"
     path.write_text("impôts payés à Créteil", encoding="utf-8")
-    documents = ingestor.ingest_text(path)
+    documents = ingestor.load_text(path)
     assert documents[0].page_content == "impôts payés à Créteil"
     assert documents[0].metadata == {"source": str(path)}
 
@@ -65,7 +65,7 @@ def test_text_is_read_as_utf8(tmp_path, ingestor):
 def test_markup_is_converted_to_markdown(tmp_path, ingestor):
     path = tmp_path / "page.html"
     path.write_text("<h1>Titre</h1><p>contenu</p>", encoding="utf-8")
-    documents = ingestor.ingest_markup(path)
+    documents = ingestor.load_markup(path)
     assert documents[0].page_content.startswith("# Titre")
     assert "contenu" in documents[0].page_content
 
@@ -80,11 +80,11 @@ def test_image_mime_follows_the_suffix(tmp_path, ingestor, monkeypatch, name, ex
         seen.update(vlm=vlm, image_bytes=image_bytes, mime=mime)
         return "texte de l'image"
 
-    monkeypatch.setattr("src.ingestor.llm_bases_img2text", fake_transcription)
+    monkeypatch.setattr("src.ingestor.transcribe_image", fake_transcription)
     path = tmp_path / name
     path.write_bytes(b"\x89PNG binaire")
 
-    documents = ingestor.ingest_image(path)
+    documents = ingestor.load_image(path)
     assert seen["mime"] == expected_mime
     assert seen["vlm"] == "vlm" and seen["image_bytes"] == b"\x89PNG binaire"
     assert documents[0].page_content == "texte de l'image"
@@ -93,7 +93,7 @@ def test_image_mime_follows_the_suffix(tmp_path, ingestor, monkeypatch, name, ex
 
 def test_pdf_yields_one_document_per_page_numbered_from_one(tmp_path, ingestor, monkeypatch):
     transcribe_pages(monkeypatch, ["# Page une", "# Page deux"])
-    documents = ingestor.ingest_pdf(tmp_path / "avis.pdf")
+    documents = ingestor.load_pdf(tmp_path / "avis.pdf")
     assert [doc.page_content for doc in documents] == ["# Page une", "# Page deux"]
     assert [doc.metadata["page"] for doc in documents] == [1, 2]
     assert all(doc.metadata["source"] == str(tmp_path / "avis.pdf") for doc in documents)
@@ -102,7 +102,7 @@ def test_pdf_yields_one_document_per_page_numbered_from_one(tmp_path, ingestor, 
 @pytest.mark.parametrize("blank", ["", "   \n\t", None])
 def test_pdf_skips_pages_the_model_returned_empty(tmp_path, ingestor, monkeypatch, blank):
     transcribe_pages(monkeypatch, [blank, "# Page deux"])
-    documents = ingestor.ingest_pdf(tmp_path / "avis.pdf")
+    documents = ingestor.load_pdf(tmp_path / "avis.pdf")
     assert [doc.metadata["page"] for doc in documents] == [2]
 
 
@@ -132,7 +132,7 @@ def test_html_is_loaded_as_markdown(tmp_path, ingestor):
 
 
 def test_image_is_loaded_as_markdown(tmp_path, ingestor, monkeypatch):
-    monkeypatch.setattr("src.ingestor.llm_bases_img2text", lambda *args: "# Photo")
+    monkeypatch.setattr("src.ingestor.transcribe_image", lambda *args: "# Photo")
     path = tmp_path / "photo.png"
     path.write_bytes(b"binaire")
     assert ingestor.load_file(path)[0] == "markdown"
@@ -149,13 +149,13 @@ def test_pdf_is_loaded_as_markdown_and_every_page_carries_the_mtime(tmp_path, in
 
 # --- chunk routing ---
 
-def test_chunk_documents_follows_the_markdown_strategy(ingestor):
-    chunks = ingestor.chunk_documents("markdown", [Document(page_content="# Titre\ncontenu")])
+def test_create_chunks_follows_the_markdown_strategy(ingestor):
+    chunks = ingestor.create_chunks("markdown", [Document(page_content="# Titre\ncontenu")])
     assert chunks[0].metadata["section"] == "Titre"
 
 
-def test_chunk_documents_follows_the_text_strategy(ingestor):
-    chunks = ingestor.chunk_documents("text", [Document(page_content="# Titre\ncontenu")])
+def test_create_chunks_follows_the_text_strategy(ingestor):
+    chunks = ingestor.create_chunks("text", [Document(page_content="# Titre\ncontenu")])
     assert "section" not in chunks[0].metadata
     assert chunks[0].page_content == "# Titre\ncontenu"
 
@@ -167,19 +167,19 @@ def test_indexed_files_group_their_chunk_ids_by_source():
                       metadatas=[{"source": "/a.pdf", "mtime": 10},
                                  {"source": "/a.pdf", "mtime": 10},
                                  {"source": "/b.pdf", "mtime": 20}])
-    indexed = Ingestor(db, vlm=None, chunk_size=1000, chunk_overlap=0).fetch_indexed_files()
+    indexed = Ingestor(db, vlm=None, chunk_size=1000, chunk_overlap=0).fetch_indexed_chunks_by_source()
     assert indexed == {"/a.pdf": {"ids": ["a1", "a2"], "mtime": 10},
                        "/b.pdf": {"ids": ["b1"], "mtime": 20}}
 
 
 def test_a_chunk_without_mtime_is_treated_as_never_indexed():
     db = FakeVectordb(ids=["a1"], metadatas=[{"source": "/a.pdf"}])
-    indexed = Ingestor(db, vlm=None, chunk_size=1000, chunk_overlap=0).fetch_indexed_files()
+    indexed = Ingestor(db, vlm=None, chunk_size=1000, chunk_overlap=0).fetch_indexed_chunks_by_source()
     assert indexed["/a.pdf"]["mtime"] == 0
 
 
 def test_an_empty_store_has_nothing_indexed(ingestor):
-    assert ingestor.fetch_indexed_files() == {}
+    assert ingestor.fetch_indexed_chunks_by_source() == {}
 
 
 def test_only_the_sources_missing_from_disk_are_dropped(tmp_path):
@@ -187,7 +187,7 @@ def test_only_the_sources_missing_from_disk_are_dropped(tmp_path):
     indexed = {"/reste.pdf": {"ids": ["k1"], "mtime": 0},
                "/disparu.pdf": {"ids": ["k9"], "mtime": 0}}
     removed = Ingestor(db, vlm=None, chunk_size=1000, chunk_overlap=0) \
-        .unindex_missing_files_from_disk(indexed, {"/reste.pdf": (tmp_path, tmp_path)})
+        .delete_chunks_of_missing_files(indexed, {"/reste.pdf": (tmp_path, tmp_path)})
     assert removed == ["/disparu.pdf"]
     assert db.deleted == [["k9"]]
 
@@ -196,7 +196,7 @@ def test_nothing_is_deleted_when_every_source_is_still_on_disk(tmp_path):
     db = FakeVectordb()
     indexed = {"/reste.pdf": {"ids": ["k1"], "mtime": 0}}
     removed = Ingestor(db, vlm=None, chunk_size=1000, chunk_overlap=0) \
-        .unindex_missing_files_from_disk(indexed, {"/reste.pdf": (tmp_path, tmp_path)})
+        .delete_chunks_of_missing_files(indexed, {"/reste.pdf": (tmp_path, tmp_path)})
     assert removed == [] and db.deleted == []
 
 

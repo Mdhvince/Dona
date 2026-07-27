@@ -1,7 +1,7 @@
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
 from src.agent import (collect_queries, collect_sources, conversation_only,
-                       current_turn, parse_citations, route, tool_failures)
+                       current_turn, parse_citations, choose_route, tool_outcomes)
 from src.tools import TOOL_ERROR
 
 
@@ -75,11 +75,11 @@ def test_collect_queries_reads_tool_calls_in_order():
     assert collect_queries(messages) == ["a", "b", "c"]
 
 
-def test_collect_queries_without_tool_calls():
+def test_collect_queries_strip_tool_calls():
     assert collect_queries([HumanMessage(content="q"), AIMessage(content="r")]) == []
 
 
-def test_tool_failures_maps_names_and_counts_successes():
+def test_tool_outcomes_maps_names_and_counts_successes():
     messages = [
         AIMessage(content="", tool_calls=[
             {"name": "rag_medhys_files", "id": "1", "args": {}},
@@ -87,19 +87,19 @@ def test_tool_failures_maps_names_and_counts_successes():
         ToolMessage(content="extraits ok", tool_call_id="1"),
         ToolMessage(content=f"{TOOL_ERROR} permission", tool_call_id="2"),
     ]
-    assert tool_failures(messages) == (["calendar_pro_list_events"], 1)
+    assert tool_outcomes(messages) == (["calendar_pro_list_events"], 1)
 
 
-def test_tool_failures_detects_framework_error_status():
+def test_tool_outcomes_detects_framework_error_status():
     messages = [
         AIMessage(content="", tool_calls=[{"name": "outil", "id": "1", "args": {}}]),
         ToolMessage(content="boom", tool_call_id="1", status="error"),
     ]
-    assert tool_failures(messages) == (["outil"], 0)
+    assert tool_outcomes(messages) == (["outil"], 0)
 
 
-def test_tool_failures_clean_run():
-    assert tool_failures([HumanMessage(content="q"), tool_message([A24]),
+def test_tool_outcomes_clean_run():
+    assert tool_outcomes([HumanMessage(content="q"), tool_message([A24]),
                           AIMessage(content="r")]) == ([], 1)
 
 
@@ -144,16 +144,16 @@ class FakeRouterLLM:
 
 
 def test_route_sends_small_talk_to_the_conversation_branch():
-    assert route(FakeRouterLLM("CONVERSATION"), "merci") == "conversation"
+    assert choose_route(FakeRouterLLM("CONVERSATION"), "merci") == "conversation"
 
 
 def test_route_defaults_to_the_tool_agent():
     # Anything but an explicit CONVERSATION verdict, including junk, a
     # refusal or a router failure: answering without tools would hallucinate
-    assert route(FakeRouterLLM("OUTILS"), "mon SIRET ?") == "agent"
-    assert route(FakeRouterLLM("je ne sais pas"), "mon SIRET ?") == "agent"
-    assert route(FakeRouterLLM(""), "mon SIRET ?") == "agent"
-    assert route(FakeRouterLLM(error=True), "mon SIRET ?") == "agent"
+    assert choose_route(FakeRouterLLM("OUTILS"), "mon SIRET ?") == "agent"
+    assert choose_route(FakeRouterLLM("je ne sais pas"), "mon SIRET ?") == "agent"
+    assert choose_route(FakeRouterLLM(""), "mon SIRET ?") == "agent"
+    assert choose_route(FakeRouterLLM(error=True), "mon SIRET ?") == "agent"
 
 
 def test_conversation_only_leaves_a_single_turn_untouched():

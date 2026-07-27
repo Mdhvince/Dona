@@ -8,7 +8,7 @@ from markitdown import MarkItDown
 
 from src.config import load_config, docs_dirs, embedding_client, vlm_client
 from src.prompt import IMAGE_TRANSCRIPTION_PROMPT, PDF_TRANSCRIPTION_PROMPT
-from src.ingestion_utilities import iter_files, llm_bases_img2text, pdf2png
+from src.ingestion_utilities import iter_ingestable_files, transcribe_image, render_page_to_png
 
 PERSIST_DIR = str(Path(__file__).parent.parent / "vectordb")
 
@@ -16,9 +16,9 @@ MARKDOWN_SUFFIXES = {".md"}
 TEXT_SUFFIXES = {".txt"}
 IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg"}
 MARKUP_SUFFIXES = {".docx", ".pptx", ".html", ".htm"}
-SUFFIXES = MARKDOWN_SUFFIXES | TEXT_SUFFIXES | IMAGE_SUFFIXES | MARKUP_SUFFIXES | {".pdf"}
+INGESTABLE_SUFFIXES = MARKDOWN_SUFFIXES | TEXT_SUFFIXES | IMAGE_SUFFIXES | MARKUP_SUFFIXES | {".pdf"}
 
-HEADERS = [("#", "h1"), ("##", "h2"), ("###", "h3")]
+MARKDOWN_HEADER_LEVELS = [("#", "h1"), ("##", "h2"), ("###", "h3")]
 
 
 class Ingestor:
@@ -32,7 +32,7 @@ class Ingestor:
         self.chunk_size = chunk_size
         self.chunk_overlap = chunk_overlap
 
-    def ingest_pdf(self, path):
+    def load_pdf(self, path):
         """
         Render each page to an image and let the vision model transcribe it to Markdown.
         :param path: The path to the PDF file.
@@ -42,8 +42,8 @@ class Ingestor:
         documents = []
         for page_index in range(len(pdf)):
             print(f"\t\t{path.name} : page {page_index + 1}/{len(pdf)}...", flush=True)
-            png_version = pdf2png(pdf[page_index])
-            text_version = llm_bases_img2text(self.vlm, png_version, "image/png", PDF_TRANSCRIPTION_PROMPT)
+            png_version = render_page_to_png(pdf[page_index])
+            text_version = transcribe_image(self.vlm, png_version, "image/png", PDF_TRANSCRIPTION_PROMPT)
 
             if not (text_version or "").strip():
                 print(f"Page {page_index + 1} vide après transcription", flush=True)
@@ -52,15 +52,15 @@ class Ingestor:
             documents.append(Document(page_content=text_version,  metadata={"source": str(path), "page": page_index + 1}))
         return documents
 
-    def ingest_image(self, path):
+    def load_image(self, path):
         mime = "image/png" if path.suffix.lower() == ".png" else "image/jpeg"
-        return [Document(page_content=llm_bases_img2text(self.vlm, path.read_bytes(), mime, IMAGE_TRANSCRIPTION_PROMPT),
+        return [Document(page_content=transcribe_image(self.vlm, path.read_bytes(), mime, IMAGE_TRANSCRIPTION_PROMPT),
                          metadata={"source": str(path)})]
 
-    def ingest_text(self, path):
+    def load_text(self, path):
         return [Document(page_content=path.read_text(encoding="utf-8"), metadata={"source": str(path)})]
 
-    def ingest_markup(self, path):
+    def load_markup(self, path):
         """
         Read a file whose structure is already written in markup (OOXML, HTML) and turn it into
         Markdown, the format specifics being handled by MarkItDown.
@@ -80,15 +80,15 @@ class Ingestor:
         """
         suffix = path.suffix.lower()
         if suffix == ".pdf":
-            fmt, documents = "markdown", self.ingest_pdf(path)
+            fmt, documents = "markdown", self.load_pdf(path)
         elif suffix in IMAGE_SUFFIXES:
-            fmt, documents = "markdown", self.ingest_image(path)
+            fmt, documents = "markdown", self.load_image(path)
         elif suffix in MARKUP_SUFFIXES:
-            fmt, documents = "markdown", self.ingest_markup(path)
+            fmt, documents = "markdown", self.load_markup(path)
         elif suffix in MARKDOWN_SUFFIXES:
-            fmt, documents = "markdown", self.ingest_text(path)
+            fmt, documents = "markdown", self.load_text(path)
         else:
-            fmt, documents = "text", self.ingest_text(path)
+            fmt, documents = "text", self.load_text(path)
 
         for doc in documents:
             doc.metadata["mtime"] = path.stat().st_mtime
@@ -100,7 +100,7 @@ class Ingestor:
         :param documents: A list of Document objects to be chunked.
         :return: A list of Document objects representing the chunks.
         """
-        by_header = MarkdownHeaderTextSplitter(headers_to_split_on=HEADERS)
+        by_header = MarkdownHeaderTextSplitter(headers_to_split_on=MARKDOWN_HEADER_LEVELS)
         recursive = RecursiveCharacterTextSplitter(chunk_size=self.chunk_size,
                                                    chunk_overlap=self.chunk_overlap,
                                                    length_function=len)
@@ -108,7 +108,7 @@ class Ingestor:
         for doc in documents:
             for section in by_header.split_text(doc.page_content):
                 # Create some context for the chunk by prepending the header path to the content and add it to the metadata.
-                header_path = " > ".join(section.metadata[key] for _, key in HEADERS if key in section.metadata)
+                header_path = " > ".join(section.metadata[key] for _, key in MARKDOWN_HEADER_LEVELS if key in section.metadata)
 
                 for piece in recursive.split_text(section.page_content):
                     metadata = dict(doc.metadata)
@@ -129,7 +129,7 @@ class Ingestor:
                                                    length_function=len)
         return recursive.split_documents(documents)
 
-    def chunk_documents(self, fmt, documents):
+    def create_chunks(self, fmt, documents):
         """
         Route the documents to the splitter matching the format their loader produced.
         :param fmt: The format produced by the loader.
@@ -140,7 +140,7 @@ class Ingestor:
             return self.create_text_based_chunks(documents)
         return self.create_markdown_based_chunks(documents)
 
-    def fetch_indexed_files(self):
+    def fetch_indexed_chunks_by_source(self):
         """
         Fetch the files that have already been indexed, and their last modification time.
         :return: A dictionary mapping file paths to their indexed metadata, including chunk IDs and last modification time.
@@ -152,7 +152,7 @@ class Ingestor:
             entry["ids"].append(chunk_id)
         return indexed
 
-    def unindex_missing_files_from_disk(self, indexed, on_disk):
+    def delete_chunks_of_missing_files(self, indexed, on_disk):
         """
         Remove the chunks of files that no longer exist on disk.
         :param indexed: A dictionary of currently indexed files and their metadata.
@@ -177,18 +177,18 @@ class Ingestor:
                 if source not in indexed
                 or path.stat().st_mtime > indexed[source]["mtime"] + 1]
 
-    def index_file(self, entry, path):
+    def index_file(self, indexed_entry, path):
         """
         Transcribe one file and replace its chunks in the store. The old chunks are deleted only once the new
         ones are ready, so a crash mid-file leaves the previous version in place.
-        :param entry: The indexed metadata of the file, or None when it is new.
+        :param indexed_entry: The chunk ids and mtime already stored for this file, or None when it is new.
         :param path: The path to the file.
         :return: A list of Document objects representing the chunks.
         """
         fmt, documents = self.load_file(path)
-        chunks = self.chunk_documents(fmt, documents)
-        if entry:
-            self.vectordb.delete(ids=entry["ids"])
+        chunks = self.create_chunks(fmt, documents)
+        if indexed_entry:
+            self.vectordb.delete(ids=indexed_entry["ids"])
         if chunks:
             self.vectordb.add_documents(chunks)
         return chunks
@@ -200,9 +200,9 @@ class Ingestor:
         :param docs_dirs: The root directories to ingest.
         :return: A summary of the run: added, updated, removed counts and the files that failed.
         """
-        indexed = self.fetch_indexed_files()
-        on_disk = {str(path): (root, path) for root, path in iter_files(docs_dirs, suffixes=SUFFIXES)}
-        removed = self.unindex_missing_files_from_disk(indexed, on_disk)
+        indexed = self.fetch_indexed_chunks_by_source()
+        on_disk = {str(path): (root, path) for root, path in iter_ingestable_files(docs_dirs, suffixes=INGESTABLE_SUFFIXES)}
+        removed = self.delete_chunks_of_missing_files(indexed, on_disk)
 
         to_process = self.files_to_reindex(indexed, on_disk)
         total = len(to_process)

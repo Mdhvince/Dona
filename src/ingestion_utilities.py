@@ -6,7 +6,7 @@ from langchain_core.messages import HumanMessage
 RENDER_DPI = 150
 
 
-def llm_bases_img2text(vlm, image_bytes, mime, prompt):
+def transcribe_image(vlm, image_bytes, mime, prompt):
     """
     This function converts an image to text using a vision language model (VLM).
     :param vlm: The vision language model to use for the conversion.
@@ -23,7 +23,7 @@ def llm_bases_img2text(vlm, image_bytes, mime, prompt):
     return vlm.invoke([message]).content
 
 
-def pdf2png(page, dpi=RENDER_DPI):
+def render_page_to_png(page, dpi=RENDER_DPI):
     """
     Render a PDF page to PNG bytes at the given resolution
     :param page: The PDF page to render.
@@ -36,7 +36,7 @@ def pdf2png(page, dpi=RENDER_DPI):
     return buffer.getvalue()
 
 
-def iter_files(roots, suffixes):
+def iter_ingestable_files(roots, suffixes):
     """
     Yield (root, path) for every ingestable file, skipping private folders (any path component starting with "_").
     :param roots: A list of root directories to search for files.

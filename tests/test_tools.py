@@ -4,7 +4,7 @@ import re
 from langchain_core.documents import Document
 from pydantic import BaseModel
 
-from src.tools import (tools_needing_confirmation, make_calendar_finder, make_rag_tool,
+from src.tools import (tools_needing_confirmation, build_calendar_finder, build_rag_tool,
                        resolve_default, sync_mcp_tool)
 
 
@@ -30,7 +30,7 @@ def call(tool_obj, queries):
 
 
 def test_tool_tags_each_chunk_with_the_marker_of_its_artifact():
-    message = call(make_rag_tool(FakeRetriever(DOCS)), ["avis imposition 2024"])
+    message = call(build_rag_tool(FakeRetriever(DOCS)), ["avis imposition 2024"])
     first, second = message.artifact
     assert f"[{first['id']}] (avis_2024.pdf, page 2) solde 9570" in message.content
     assert f"[{second['id']}] (rib.pdf, page ?) iban" in message.content
@@ -39,7 +39,7 @@ def test_tool_tags_each_chunk_with_the_marker_of_its_artifact():
 
 
 def test_tool_markers_are_unique_across_calls():
-    rag = make_rag_tool(FakeRetriever(DOCS))
+    rag = build_rag_tool(FakeRetriever(DOCS))
     first = {info["id"] for info in call(rag, ["a"]).artifact}
     second = {info["id"] for info in call(rag, ["b"]).artifact}
     assert len(first) == 2 and not (first & second)
@@ -47,18 +47,18 @@ def test_tool_markers_are_unique_across_calls():
 
 def test_tool_passes_all_queries_to_retriever():
     retriever = FakeRetriever(DOCS)
-    call(make_rag_tool(retriever), ["a", "b"])
+    call(build_rag_tool(retriever), ["a", "b"])
     assert retriever.calls == [["a", "b"]]
 
 
 def test_tool_reports_empty_results():
-    message = call(make_rag_tool(FakeRetriever([])), ["introuvable"])
+    message = call(build_rag_tool(FakeRetriever([])), ["introuvable"])
     assert "Aucun extrait" in message.content
     assert message.artifact == []
 
 
 def test_tool_exposes_name_description_and_schema():
-    rag = make_rag_tool(FakeRetriever(DOCS))
+    rag = build_rag_tool(FakeRetriever(DOCS))
     assert rag.name == "rag_medhys_files"
     assert "Myelink" in rag.description
     assert "queries" in rag.args
@@ -140,13 +140,13 @@ def make_account(name, by_query=None, listing=None, key="events", error=None):
 
 
 def test_finder_returns_none_without_calendar_tools():
-    assert make_calendar_finder([FakeCalendarTool("autre_outil")]) is None
+    assert build_calendar_finder([FakeCalendarTool("autre_outil")]) is None
 
 
 def test_finder_searches_every_account_with_each_term():
     pro = make_account("pro")
     perso = make_account("perso", by_query={"porto": [S_PORTO]})
-    result = make_calendar_finder(pro + perso).invoke({"query": "Stefani Porto"})
+    result = build_calendar_finder(pro + perso).invoke({"query": "Stefani Porto"})
     assert "[perso] S porto" in result
     assert {c["query"] for c in pro[0].calls} == {"stefani", "porto"}
 
@@ -154,7 +154,7 @@ def test_finder_searches_every_account_with_each_term():
 def test_finder_falls_back_to_listing_on_literal_miss():
     pro = make_account("pro")
     perso = make_account("perso", listing=[S_PORTO])
-    result = make_calendar_finder(pro + perso).invoke({"query": "Stefani Porto"})
+    result = build_calendar_finder(pro + perso).invoke({"query": "Stefani Porto"})
     assert "[perso] S porto" in result
     assert pro[1].calls and perso[1].calls
 
@@ -162,19 +162,19 @@ def test_finder_falls_back_to_listing_on_literal_miss():
 def test_finder_reads_items_key_and_deduplicates():
     pro = make_account("pro", by_query={"porto": [S_PORTO], "stefani": [S_PORTO]},
                        key="items")
-    result = make_calendar_finder(pro).invoke({"query": "Stefani Porto"})
+    result = build_calendar_finder(pro).invoke({"query": "Stefani Porto"})
     assert result.count("S porto") == 1
 
 
 def test_finder_reports_empty():
-    result = make_calendar_finder(make_account("pro")).invoke({"query": "Zzz Yyy"})
+    result = build_calendar_finder(make_account("pro")).invoke({"query": "Zzz Yyy"})
     assert "Aucun événement" in result
 
 
 def test_finder_reports_tool_errors_instead_of_empty_agenda():
     from src.tools import TOOL_ERROR
     errored = make_account("pro", error="The caller does not have permission")
-    result = make_calendar_finder(errored).invoke({"query": "rdv"})
+    result = build_calendar_finder(errored).invoke({"query": "rdv"})
     assert TOOL_ERROR in result
     assert "permission" in result
     assert "Aucun événement trouvé" not in result

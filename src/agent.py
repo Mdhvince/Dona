@@ -23,29 +23,53 @@ def system_prompt(request: ModelRequest) -> str:
     return SYSTEM_PROMPT.format(date=date.today().strftime("%d/%m/%Y"))
 
 
-def conversation_only(messages):
-    """Past turns keep their conversation (questions and answers) but lose
-    their tool calls and retrieved excerpts; the current turn is untouched.
-    Left in place, stale excerpts make the model answer from them instead of
-    searching again - including "not found" on documents it never looked
-    for. Tool calls are dropped along with their results: a dangling call
-    without its result is rejected by some providers."""
-    turn_start = len(messages)
-    for i in range(len(messages) - 1, -1, -1):
-        if isinstance(messages[i], HumanMessage):
-            turn_start = i
-            break
+def current_turn_start_index(messages):
+    """Where the turn being answered right now begins: the last question asked.
+    :param messages: The message history.
+    :return: The index of the last question, or the end of the history when it holds none.
+    """
+    for index in reversed(range(len(messages))):
+        if isinstance(messages[index], HumanMessage):
+            return index
+    return len(messages)
 
-    kept = []
-    for message in messages[:turn_start]:
-        if isinstance(message, ToolMessage):
-            continue
-        if isinstance(message, AIMessage):
-            if not message.content:
-                continue
-            message = AIMessage(content=message.content)
-        kept.append(message)
-    return kept + messages[turn_start:]
+
+def is_question_or_answer(message):
+    """Tell apart what was said from the tool machinery that produced it.
+    :param message: The message to classify.
+    :return: True for a question or an answer carrying text, False for a tool
+             result and for the empty answer that only carried a tool call.
+    """
+    if isinstance(message, ToolMessage):
+        return False
+    if isinstance(message, AIMessage):
+        return bool(message.content)
+    return True
+
+
+def strip_tool_calls(message):
+    """Rebuild an answer from its text alone: a tool call kept without its result
+    is rejected by some providers.
+    :param message: The message to strip.
+    :return: The same message, minus the tool calls attached to it.
+    """
+    if isinstance(message, AIMessage):
+        return AIMessage(content=message.content)
+    return message
+
+
+def conversation_only(messages):
+    """Past turns keep their conversation (questions and answers) but lose their
+    tool calls and retrieved excerpts; the current turn is untouched. Left in
+    place, stale excerpts make the model answer from them instead of searching
+    again - including "not found" on documents it never looked for.
+    :param messages: The message history.
+    :return: The history with the tool traces of the past turns removed.
+    """
+    turn_start = current_turn_start_index(messages)
+    past_turns = [strip_tool_calls(message)
+                  for message in messages[:turn_start] if is_question_or_answer(message)]
+    return past_turns + messages[turn_start:]
 
 
 @wrap_model_call
@@ -55,7 +79,7 @@ def fresh_retrieval(request, handler):
     return handler(request.override(messages=conversation_only(request.messages)))
 
 
-def route(router_llm, message):
+def choose_route(router_llm, message):
     """CONVERSATION only when the message clearly needs no data: anything
     else, including any doubt or an unreadable answer, goes to the tool
     agent. Misrouting a real question would answer it without tools."""
@@ -83,7 +107,7 @@ def build_graph(llm, router_llm, tools, checkpointer=None, tools_needing_confirm
     graph.add_node("agent", agent_with_tools)
     graph.add_conditional_edges(
         START,
-        lambda state: route(router_llm, state["messages"][-1].content),
+        lambda state: choose_route(router_llm, state["messages"][-1].content),
         {"conversation": "conversation", "agent": "agent"}
     )
     graph.add_edge("conversation", END)
@@ -167,7 +191,7 @@ def collect_sources(messages):
     return _add_labels(sources)
 
 
-def tool_failures(messages):
+def tool_outcomes(messages):
     """(failed tool names, successful call count) for the run, detected in
     code (TOOL_ERROR sentinel emitted by the tool layer, or error status set
     by the framework) so the UI can report failures deterministically: the
