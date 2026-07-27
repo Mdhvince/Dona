@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Assistant — réponse</title>
+<link rel="stylesheet" href="sim-core.css">
+</head>
+<body>
+<script>
+function side(n) {
+  const rows = [
+    ["flux", n >= 1 ? "NDJSON ouvert" : "—"],
+    ["phase", n >= 3 ? "rédaction" : n >= 1 ? "réflexion" : "—"],
+    ["extraits reçus", n >= 2 ? "6" : "—"],
+    ["marqueurs cités", n >= 4 ? "2" : "—"],
+    ["sources affichées", n >= 5 ? "2" : "—"],
+    ["status", n >= 6 ? "ok" : "—"]
+  ];
+  return '<h2>Flux vers le navigateur</h2>' + rows.map(([k, v]) =>
+    '<div class="kv"><span class="k">' + k + '</span><span class="v' + (v === "—" ? " off" : "") + '">' + v + '</span></div>').join("") +
+    '<h2>Jamais envoyé</h2><div style="font-size:.82rem;color:var(--ink-2);line-height:1.5">' +
+    'Le <b>contenu</b> du raisonnement ne quitte jamais le serveur — seul son avancement (compteur de tokens) est diffusé.</div>';
+}
+
+window.SIM = {
+  page: "reponse",
+  title: "④ La réponse — streaming, citations, sources",
+  subtitle: "Ce qui se passe entre la fin du raisonnement et l'affichage à l'écran",
+  legend: ["citations résolues en code, jamais par le modèle", "Markdown assaini par nh3 avant affichage", "le status vient du code, pas du LLM"],
+  steps: [
+
+  { tag:"Étape 1", phase:"Le flux NDJSON", side:side(1),
+    narr:"<code>POST /ask</code> ne rend pas une réponse : il ouvre un flux, une ligne JSON par événement, alimenté par <code>agent.stream(stream_mode=[\"messages\", \"values\"])</code>.",
+    stage:
+      '<div class="box"><h4>Les premières lignes</h4><pre>{"phase":"réflexion","tokens":120}\n{"phase":"réflexion","tokens":340}\n{"phase":"préparation d\'appel d\'outil"}\n{"tool":"rag_medhys_files","args":{"queries":["revenu fiscal…"]}}\n{"retrieved":6}\n{"phase":"rédaction","tokens":80}</pre></div>'+
+      '<div class="note"><b>Deux flux, deux rôles</b>Le flux de <b>tokens</b> donne les battements (phase + compteur, throttlés). Le flux d\'<b>états</b> donne les événements d\'étape : quel outil, quels arguments, combien d\'extraits.</div>' },
+
+  { tag:"Étape 2", phase:"Le radar d'activité", side:side(2),
+    narr:"Pendant l'attente, un radar à 8 axes se déforme vers ce que l'agent fait <b>réellement</b> — pas vers une animation décorative.",
+    stage:
+      '<div class="box"><h4>Les 8 axes</h4><div class="body stagger" style="display:flex;flex-direction:column;gap:.1rem">'+
+      '<div class="kv"><span class="k">Réflexion</span><span class="v"><span class="pill ok">actif</span></span></div>'+
+      '<div class="kv"><span class="k">Documents</span><span class="v"><span class="pill ok">actif</span></span></div>'+
+      '<div class="kv"><span class="k">Agenda pro · Agenda perso</span><span class="v"><span class="pill n">branchés</span></span></div>'+
+      '<div class="kv"><span class="k">Qonto</span><span class="v"><span class="pill n">branché</span></span></div>'+
+      '<div class="kv"><span class="k">Recherche web · Mail pro · Mail perso</span><span class="v"><span class="pill n">plats</span></span></div>'+
+      '</div></div>'+
+      '<div class="note"><b>Comment un outil trouve son axe</b><code>TOOL_ROUTES</code> associe des motifs ancrés, du plus spécifique au plus général ; un outil inconnu retombe sur Réflexion. La barre de progression est asymptotique : le nombre d\'étapes étant inconnu, elle n\'atteint jamais 100 %.</div>' },
+
+  { tag:"Étape 3", phase:"Ce que le modèle a écrit", side:side(3),
+    narr:"Le texte brut de l'agent contient des marqueurs. Le prompt lui demande de recopier celui de l'extrait juste après l'information qui en vient.",
+    stage:
+      '<div class="box"><h4>Réponse brute</h4><pre>Ton revenu fiscal de référence 2025 est de **48 210 €** [3f2a].\nC\'est en hausse par rapport à 2024, où il était de 45 880 € [9c17].</pre></div>'+
+      '<div class="note warn"><b>Aucune grammaire de sortie n\'est imposée</b>Une sortie contrainte entre en conflit avec le tool calling selon les modèles. D\'où le choix de la citation en ligne, résolue après coup — plutôt qu\'un schéma JSON que le modèle devrait remplir.</div>' },
+
+  { tag:"Étape 4", phase:"Résolution des citations", side:side(4),
+    narr:"<code>parse_citations()</code> retrouve les marqueurs, les résout via les artifacts, et les retire du texte affiché. Entièrement déterministe.",
+    stage:
+      '<div class="box"><h4>La résolution</h4><pre>marqueurs trouvés : [3f2a] [9c17]\n\n[3f2a] → avis_imposition_2025.pdf, page 1   <span class="g">✓ retenu</span>\n[9c17] → avis_imposition_2024.pdf, page 1   <span class="g">✓ retenu</span>\n[ffff] → aucun extrait correspondant        <span class="r">✗ écarté</span></pre></div>'+
+      '<div class="note"><b>Pourquoi c\'est solide</b>Le modèle qui cite est celui qui a lu les extraits, et un marqueur ne correspondant à aucun extrait récupéré est <b>écarté</b>. Les identifiants sont aléatoires précisément pour rester uniques entre plusieurs appels d\'outil d\'un même tour.</div>' },
+
+  { tag:"Étape 5", phase:"Les sources", side:side(5),
+    narr:"<code>collect_sources()</code> lit les artifacts des <code>ToolMessage</code> — <b>jamais</b> la sortie du LLM. Chaque source reçoit ensuite un label unique.",
+    stage:
+      '<div class="box"><h4>Le problème des noms identiques</h4><pre>2 fichiers nommés "avis_imposition.pdf"\n  /Drive/Impots/<span class="g">2025</span>/avis_imposition.pdf\n  /Drive/Impots/<span class="g">2024</span>/avis_imposition.pdf\n\n→ label = "avis_imposition.pdf (2025)"\n→ label = "avis_imposition.pdf (2024)"</pre></div>'+
+      '<div class="note"><b>Pas un détail cosmétique</b>Les documents comptables se répètent à l\'identique d\'un exercice à l\'autre. Sans le dossier parent dans le label, l\'interface confondrait deux fichiers différents — et l\'utilisateur ouvrirait la mauvaise année.</div>' },
+
+  { tag:"Étape 6", phase:"La ligne finale", side:side(6),
+    narr:"Le Markdown est converti côté serveur puis <b>assaini par nh3</b> avant d'être envoyé.",
+    stage:
+      '<div class="box"><h4>Dernière ligne du flux</h4><pre>{\n  "answer": "&lt;p&gt;Ton revenu fiscal de référence 2025 est de…&lt;/p&gt;",\n  "status": "ok",\n  "sources": [\n    {"name":"avis_imposition_2025.pdf","page":"1","url":"/source?path=…"},\n    {"name":"avis_imposition_2024.pdf","page":"1","url":"/source?path=…"}\n  ],\n  "retrieved": 6,\n  "queries": ["revenu fiscal de référence", "montant imposable…"],\n  "failed_tools": []\n}</pre></div>'+
+      '<div class="note neg"><b>Pourquoi nh3 est obligatoire</b>python-markdown laisse passer le HTML brut. Un document indexé malveillant pourrait donc injecter du script dans la page — le vecteur XSS passe par le <i>corpus</i>, pas par l\'utilisateur. L\'assainissement n\'est pas optionnel.</div>' },
+
+  { tag:"Étape 7", phase:"Quand ça échoue", side:side(6),
+    narr:"Deux statuts dégradés, deux traitements visuels distincts — et dans les deux cas, la détection vient du code.",
+    stage:
+      '<div class="cols">'+
+      '<div class="box"><h4>status: "partial"</h4><div class="body" style="font-size:.85rem;color:var(--ink-2)">Une partie des appels a réussi. La réponse s\'affiche, <b>sous un bandeau fixe</b> listant les outils en échec.</div></div>'+
+      '<div class="box"><h4>status: "error"</h4><div class="body" style="font-size:.85rem;color:var(--ink-2)">Tous les appels ont échoué. La réponse du modèle est <b>remplacée</b> par un message fixe — on ne l\'affiche pas du tout.</div></div>'+
+      '</div>'+
+      '<div class="note"><b>La règle derrière ces deux cas</b>Un échec d\'accès ne doit jamais être présenté comme une donnée. « Ton agenda est vide » quand le serveur calendrier est tombé serait une réponse fausse et crédible — le pire des deux mondes. Le modèle ne narre jamais un échec.</div>' },
+
+  { tag:"Bilan", phase:"Les autres routes", side:side(6),
+    narr:"Quatre routes complètent <code>/ask</code>.",
+    stage:
+      '<div class="box"><h4>webapp/views.py</h4><div class="body stagger" style="display:flex;flex-direction:column;gap:.1rem">'+
+      '<div class="kv"><span class="k">POST /confirm</span><span class="v">reprend un run interrompu</span></div>'+
+      '<div class="kv"><span class="k">GET /source?path=…</span><span class="v">sert un document indexé</span></div>'+
+      '<div class="kv"><span class="k">POST /reindex</span><span class="v">incrémentale en arrière-plan</span></div>'+
+      '<div class="kv"><span class="k">GET /reindex/status</span><span class="v">pollé par le front</span></div>'+
+      '</div></div>'+
+      '<div class="note warn"><b>Deux protections sur /source</b>Les liens <code>file://</code> sont bloqués depuis une page HTTP, d\'où cette route. Elle est <b>restreinte aux racines indexées</b> — tout chemin en dehors renvoie 403, sinon elle deviendrait une lecture arbitraire du disque.</div>' }
+
+]};
+</script>
+<script src="sim-core.js"></script>
+</body>
+</html>

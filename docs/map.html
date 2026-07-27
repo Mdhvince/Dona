@@ -1,0 +1,514 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Assistant — carte interactive</title>
+<link rel="stylesheet" href="sim-core.css">
+<style>
+  .bar2{display:flex;align-items:center;gap:.8rem;flex-wrap:wrap;
+    padding:.6rem clamp(1rem,3vw,2rem);border-bottom:1px solid var(--line);
+    background:var(--surface);position:sticky;top:0;z-index:6}
+  .crumbs{display:flex;align-items:center;gap:.25rem;flex-wrap:wrap;flex:1;min-width:0}
+  .crumbs button{font-family:var(--fm);font-size:.72rem;background:none;border:none;
+    color:var(--accent);cursor:pointer;padding:.2rem .35rem;border-radius:3px}
+  .crumbs button:hover{background:var(--accent-soft)}
+  .crumbs button:disabled{color:var(--ink-3);cursor:default}
+  .crumbs .sep{color:var(--ink-3);font-family:var(--fm);font-size:.7rem}
+  .up{font-family:var(--fm);font-size:.68rem;letter-spacing:.08em;text-transform:uppercase;
+    background:var(--surface-2);color:var(--ink-2);border:1px solid var(--line);
+    border-radius:3px;padding:.3rem .6rem;cursor:pointer}
+  .up:hover{border-color:var(--accent);color:var(--accent)}
+  .up[hidden]{display:none}
+
+  .mwrap{display:grid;grid-template-columns:minmax(0,1fr)}
+  @media (min-width:1000px){.mwrap{grid-template-columns:minmax(0,1fr) 340px}}
+  .stage2{padding:clamp(1rem,2.5vw,2rem);overflow-y:auto}
+  .stage2>h2{font-family:var(--fh);font-weight:680;letter-spacing:-.02em;font-size:1.3rem;margin:0 0 .3rem}
+  .stage2>p.intro{margin:0 0 1.6rem;color:var(--ink-2);font-size:.92rem;max-width:70ch}
+  .zone{margin-bottom:2.2rem}
+  .zone>h3{font-family:var(--fm);font-size:.66rem;letter-spacing:.14em;text-transform:uppercase;
+    color:var(--ink-3);font-weight:500;margin:0 0 .9rem;padding-bottom:.4rem;border-bottom:1px solid var(--line)}
+  .canvas{position:relative}
+  .canvas svg{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;overflow:visible}
+  .grid{position:relative;display:grid;gap:1.5rem .9rem;z-index:1}
+
+  .node{position:relative;text-align:left;cursor:pointer;font:inherit;
+    background:var(--surface);color:var(--ink);border:1px solid var(--line-strong);
+    border-radius:4px;padding:.6rem .7rem;min-height:60px;
+    display:flex;flex-direction:column;gap:.15rem;
+    transition:border-color .12s,transform .12s,box-shadow .12s}
+  .node:hover{border-color:var(--accent);transform:translateY(-1px)}
+  .node.sel{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent-soft)}
+  .node .lab{font-family:var(--fh);font-weight:640;font-size:.86rem;letter-spacing:-.01em;line-height:1.25}
+  .node .sub{font-family:var(--fm);font-size:.66rem;color:var(--ink-3);line-height:1.35;word-break:break-word}
+  .node .more{position:absolute;top:.4rem;right:.45rem;font-family:var(--fm);font-size:.62rem;
+    color:var(--accent);border:1px solid var(--accent);border-radius:99px;padding:0 .3em;line-height:1.35}
+  .node.k-stage{background:var(--accent-soft);border-color:var(--accent)}
+  .node.k-stage .lab{color:var(--accent-2)}
+  .node.k-ml{background:var(--ml-soft);border-color:var(--ml)}
+  .node.k-ext{background:var(--warn-soft);border-color:var(--warn)}
+  .node.k-data{border-style:dashed;background:transparent}
+  .node.k-off{border-style:dashed;opacity:.62}
+  .edge{fill:none;stroke:var(--line-strong);stroke-width:1.4}
+  .edge.back{stroke-dasharray:4 3;stroke:var(--ink-3)}
+
+  .panel{border-top:1px solid var(--line);background:var(--surface);
+    padding:1.2rem clamp(1rem,3vw,1.4rem);overflow-y:auto}
+  @media (min-width:1000px){.panel{border-top:none;border-left:1px solid var(--line)}}
+  .panel .kind{font-family:var(--fm);font-size:.62rem;letter-spacing:.12em;text-transform:uppercase;
+    color:var(--accent);display:block;margin-bottom:.4rem}
+  .panel h3{font-family:var(--fh);font-weight:680;font-size:1.05rem;letter-spacing:-.015em;margin:0 0 .6rem}
+  .panel p{margin:0 0 .8rem;font-size:.87rem;color:var(--ink-2)}
+  .panel ul{margin:0 0 .9rem;padding-left:1.1rem;font-size:.85rem;color:var(--ink-2)}
+  .panel li{margin-bottom:.3rem}
+  .panel .files{list-style:none;padding:0;margin:.2rem 0 1rem;font-family:var(--fm);font-size:.72rem;color:var(--ink-2)}
+  .panel .files li{padding:.2rem 0;border-bottom:1px dotted var(--line);word-break:break-all}
+  .panel .h{font-family:var(--fm);font-size:.62rem;letter-spacing:.12em;text-transform:uppercase;
+    color:var(--ink-3);margin:1.2rem 0 .3rem}
+  .panel .trap{border-left:3px solid var(--neg);background:var(--surface-2);padding:.6rem .75rem;
+    font-size:.82rem;color:var(--ink-2);border-radius:0 3px 3px 0;margin:.4rem 0 1rem}
+  .panel .trap b{color:var(--neg);font-family:var(--fh);font-size:.78rem;text-transform:uppercase;
+    letter-spacing:.06em;display:block;margin-bottom:.2rem}
+  .panel .drill{display:block;width:100%;text-align:center;cursor:pointer;font-family:var(--fh);
+    font-weight:640;font-size:.85rem;background:var(--accent);color:var(--paper);border:none;
+    border-radius:4px;padding:.6rem;margin-top:.4rem}
+  .panel .drill:hover{background:var(--accent-2)}
+  .panel .empty{color:var(--ink-3);font-size:.85rem;font-style:italic}
+</style>
+</head>
+<body>
+
+<header class="head">
+  <h1>Assistant personnel — carte du système</h1>
+  <p>Agentique sur mes données, 100 % local. Clique une brique pour descendre dedans.</p>
+  <div id="nav"></div>
+</header>
+
+<div class="bar2">
+  <nav class="crumbs" id="crumbs" aria-label="Fil d'Ariane"></nav>
+  <button class="up" id="up" hidden>↑ Remonter <span style="opacity:.6">esc</span></button>
+</div>
+
+<div class="mwrap">
+  <main class="stage2" id="stage"></main>
+  <aside class="panel" id="panel" aria-live="polite"></aside>
+</div>
+
+<footer class="foot">
+  <span>étape du flux</span><span>service / code</span><span>modèle local</span>
+  <span>service externe</span><span>clic = détail · <b>+</b> = descend d'un niveau</span>
+</footer>
+
+<script src="sim-core.js"></script>
+<script>
+document.getElementById('nav').innerHTML = window.navHTML('map');
+
+const V = {
+
+root: {
+  title: "Le système en une vue",
+  intro: "Des documents Drive sont transcrits et indexés ; une question déclenche une recherche hybride, un agent outillé, puis une réponse citée. Tout tourne sur la machine.",
+  zones: [
+    { label: "Le flux principal", cols: 4, nodes: [
+      { id:"drive", lab:"Google Drive", sub:"PDF · images · docx · pptx · html · txt", col:1, row:1, kind:"data",
+        why:"Deux Drive montés localement. Les chemins vivent dans <code>.env</code>, jamais dans le repo." },
+      { id:"ing", lab:"① Ingestion", sub:"transcription → chunks → embeddings", col:2, row:1, kind:"stage", into:"ingestion",
+        why:"Chaque fichier est converti en Markdown, découpé selon son format de sortie, embeddé et stocké." },
+      { id:"idx", lab:"Chroma + BM25", sub:"vectordb/ · index mémoire", col:3, row:1, kind:"data",
+        why:"Chroma persiste les vecteurs sur disque. L'index BM25 est reconstruit en mémoire au démarrage et après chaque ré-indexation." },
+      { id:"ret", lab:"② Retrieval", sub:"hybride + RRF · 0 LLM", col:4, row:1, kind:"stage", into:"retrieval",
+        why:"Sémantique et mots-clés fusionnés par Reciprocal Rank Fusion. Fonction pure, entièrement déterministe." },
+      { id:"ag", lab:"③ Agent", sub:"routeur + outils", col:4, row:2, kind:"stage", into:"agent",
+        why:"Un routeur devant deux branches. La branche outillée dispose du RAG, des agendas et de la banque." },
+      { id:"rep", lab:"④ Réponse", sub:"streaming · citations · sources", col:3, row:2, kind:"stage", into:"reponse",
+        why:"Flux NDJSON vers le navigateur, citations résolues en code, sources lues dans les artifacts." },
+      { id:"ui", lab:"Interface Flask", sub:"port 5001", col:2, row:2, kind:"data",
+        why:"Deux panneaux : sources à gauche, conversation à droite. Sans framework CSS.",
+        bullets:["Le port 5000 est pris par le récepteur AirPlay de macOS."] }
+    ], edges: [["drive","ing"],["ing","idx"],["idx","ret"],["ret","ag"],["ag","rep"],["rep","ui"],["ag","ret","back"]] },
+
+    { label: "Transverse", cols: 4, nodes: [
+      { id:"mcp", lab:"Serveurs MCP", sub:"agendas · Qonto", col:1, row:1, kind:"ext", into:"mcp",
+        why:"Trois serveurs déclarés en blocs <code>[[mcp]]</code>, connectés au démarrage." },
+      { id:"mod", lab:"Modèles Ollama", sub:"4 rôles, 3 modèles", col:2, row:1, kind:"ml", into:"modeles",
+        why:"LLM, routeur, vision et embeddings — tous locaux." },
+      { id:"sec", lab:"Ce qui est verrouillé", sub:"whitelist · confirm · nh3", col:3, row:1, into:"securite",
+        why:"Les décisions que le modèle n'a pas le droit de prendre, et pourquoi." },
+      { id:"cfg", lab:"config.toml", sub:"+ .env pour le privé", col:4, row:1, kind:"data",
+        why:"Toute la configuration en TOML. Les valeurs personnelles (emails, chemins, credentials) sont des placeholders <code>${VAR}</code> interpolés au chargement depuis <code>.env</code>.",
+        bullets:["Le repo ne contient donc aucune donnée personnelle."] }
+    ], edges: [] }
+  ]
+},
+
+ingestion: {
+  title: "① Ingestion",
+  intro: "Du fichier Drive au vecteur. La règle centrale : la stratégie suit le format de SORTIE du chargeur, jamais le suffixe d'origine.",
+  zones: [
+    { label: "Chargement selon le type", cols: 3, nodes: [
+      { id:"pdf", lab:"PDF · images", sub:"→ modèle vision", col:1, row:1, kind:"ml",
+        why:"Chaque page est rendue en PNG à 150 DPI (pypdfium2), puis transcrite en Markdown par <code>glm-ocr</code>.",
+        files:["src/ingestion_utilities.py"],
+        bullets:["<code>reasoning = false</code> : transcrire ne demande aucun raisonnement, et c'est ~12× plus rapide."],
+        trap:"Aucune vérification automatique des transcriptions. Une erreur du modèle vision se propage silencieusement dans l'index." },
+      { id:"mkp", lab:"docx · pptx · html", sub:"→ MarkItDown", col:2, row:1,
+        why:"Ces formats portent déjà leur structure dans leur balisage (OOXML, DOM). MarkItDown la lit et la rend telle quelle — ni VLM, ni heuristique.",
+        files:["src/ingestor.py — load_markup"] },
+      { id:"txt", lab:"txt · md", sub:"→ tel quel", col:3, row:1, kind:"data",
+        why:"Aucune conversion. Un .md est déjà du Markdown, un .txt n'a aucune structure à suivre." },
+      { id:"why", lab:"Pourquoi la vision", sub:"le choix structurant", col:1, row:2,
+        why:"Sur un document administratif en colonnes, les extracteurs texte et les parsers de layout <b>dissocient le libellé de sa valeur</b>. L'embedding perd alors l'association. Un modèle vision la préserve parce qu'il voit la mise en page." }
+    ], edges: [] },
+
+    { label: "Découpage", cols: 3, nodes: [
+      { id:"md", lab:"Découpage markdown", sub:"titres, puis récursif si besoin", col:1, row:1, kind:"stage",
+        why:"<code>MarkdownHeaderTextSplitter</code> sur les titres — une section reste entière, tableaux compris. <code>RecursiveCharacterTextSplitter</code> n'intervient que sur les sections dépassant <code>chunk_size</code>.",
+        bullets:["<code>chunk_size = 1000</code>, choisi pour ne pas couper un tableau en deux."] },
+      { id:"path", lab:"Chemin de titres", sub:"préfixé + métadonnée", col:2, row:1,
+        why:"Le chemin de titres est préfixé au texte du chunk (contexte pour l'embedding) <b>et</b> stocké en métadonnée <code>section</code>." },
+      { id:"rec", lab:"Découpage texte", sub:"récursif seul", col:3, row:1, kind:"stage",
+        why:"Paragraphe, puis phrase, puis mot. Pas de métadonnée <code>section</code>.",
+        bullets:["Convertir un .txt en Markdown inventerait des titres absents de la source, qui se retrouveraient dans l'embedding et dans le contexte de l'agent. Le repli récursif est explicite, pas subi."] }
+    ], edges: [] },
+
+    { label: "Indexation", cols: 3, nodes: [
+      { id:"emb", lab:"bge-m3", sub:"API OpenAI-compatible", col:1, row:1, kind:"ml",
+        why:"Embeddings servis par Ollama. Ingestion et requête partagent <code>config.embedding_client</code>.",
+        trap:"Changer de modèle d'embedding rend les espaces vectoriels incompatibles. Il faut alors une reconstruction complète (<code>--full</code>)." },
+      { id:"inc", lab:"Ingestion incrémentale", sub:"comparaison mtime", col:2, row:1, kind:"stage",
+        why:"Nouveau fichier → indexé. Modifié → ré-indexé. Disparu → chunks supprimés. Le reste n'est pas retouché.",
+        files:["src/ingestor.py — run()"],
+        bullets:["Tolérance d'1 s sur le mtime : les montages cloud le font varier sans que le contenu change."] },
+      { id:"scope", lab:"Périmètre", sub:"exclusions", col:3, row:1, kind:"data",
+        why:"Racines dans <code>DOCS_DIRS</code>. Tout chemin traversant un dossier commençant par <code>_</code> est exclu.",
+        bullets:["Les formats tabulaires (.csv, .xlsx) ne sont pas pris en charge : ce sont des données structurées, pas du document."] }
+    ], edges: [] }
+  ]
+},
+
+retrieval: {
+  title: "② Retrieval",
+  intro: "Recherche hybride fusionnée par RRF. Aucun appel LLM : c'est une fonction déterministe.",
+  zones: [
+    { label: "Deux recherches, une fusion", cols: 4, nodes: [
+      { id:"q", lab:"queries: list[str]", sub:"plusieurs formulations", col:1, row:1, kind:"data",
+        why:"L'outil n'accepte pas une chaîne mais une liste. Chaque couple (requête, méthode) devient un classement de plus dans la fusion." },
+      { id:"sem", lab:"Sémantique", sub:"Chroma · fetch_k = 12", col:2, row:1, kind:"ml",
+        why:"Similarité vectorielle. Trouve le sens même quand les mots diffèrent.",
+        trap:"Elle rapproche deux exercices comptables parce qu'ils parlent de la même chose — elle ne sait pas trancher entre 2024 et 2025." },
+      { id:"bm", lab:"BM25", sub:"tokenisation française", col:3, row:1, kind:"ml",
+        why:"Minuscules, accents retirés, stopwords exclus, racinisation Snowball. C'est elle qui rattrape le terme discriminant.",
+        files:["src/retrieval.py — tokenize()"],
+        bullets:["« numero » trouve « numéro » ; « création » et « créer » partagent la racine « cre »."] },
+      { id:"rrf", lab:"RRF", sub:"1 / (60 + rang)", col:4, row:1, kind:"stage",
+        why:"Chaque document reçoit ce score dans chaque classement où il apparaît, et les scores s'additionnent.",
+        bullets:["Le <code>rrf_k = 60</code> aplatit l'écart entre les premiers rangs : être correct partout bat être premier une seule fois."] },
+      { id:"top", lab:"k = 6", sub:"retournés à l'agent", col:4, row:2, kind:"data",
+        why:"Les 6 meilleurs après fusion, mis en forme avec un marqueur unique et le nom du fichier." }
+    ], edges: [["q","sem"],["q","bm"],["sem","rrf"],["bm","rrf"],["rrf","top"]] },
+
+    { label: "Ce qui sort", cols: 3, nodes: [
+      { id:"ctx", lab:"Vers le contexte", sub:"texte numéroté", col:1, row:1,
+        why:"Extraits préfixés d'un marqueur <code>[3f2a]</code>, du nom de fichier et de la page — de quoi distinguer deux exercices." },
+      { id:"art", lab:"Vers l'artifact", sub:"sans repasser par le LLM", col:2, row:1, kind:"data",
+        why:"Les métadonnées <code>{path, page, id}</code> voyagent dans le <code>ToolMessage</code>. C'est ce qui rend les sources affichées incontestables.",
+        bullets:["<code>response_format=\"content_and_artifact\"</code>"] },
+      { id:"lim", lab:"La limite", sub:"pas d'évaluation", col:3, row:1, kind:"off",
+        why:"Aucun jeu de questions/réponses de référence. Régler <code>k</code>, <code>fetch_k</code> ou <code>rrf_k</code> se fait à l'intuition." }
+    ], edges: [] }
+  ]
+},
+
+agent: {
+  title: "③ L'agent",
+  intro: "Un graphe LangGraph : un routeur devant deux branches partageant le même historique.",
+  zones: [
+    { label: "Le routage", cols: 3, nodes: [
+      { id:"rt", lab:"Routeur", sub:"CONVERSATION ou OUTILS", col:1, row:1, kind:"stage",
+        why:"Même modèle que l'agent, mais <code>reasoning = false</code>. Une salutation est traitée en une fraction de seconde au lieu des ~20 s que coûte la réflexion.",
+        files:["src/agent.py — choose_route"],
+        bullets:["<code>think</code> étant un drapeau par requête, les poids déjà chargés servent les trois rôles sans mémoire supplémentaire."] },
+      { id:"conv", lab:"Branche conversation", sub:"aucun outil", col:2, row:1,
+        why:"Reçoit l'historique du fil nettoyé de ses appels d'outils, pour comprendre les références — mais ne peut rien chercher." },
+      { id:"tool", lab:"Branche agent", sub:"outils + citations", col:3, row:1, kind:"stage",
+        why:"<code>create_agent</code> (LangChain 1.x) avec ses middlewares et ses outils.",
+        trap:"<b>Tout sauf un CONVERSATION explicite</b> mène ici : réponse illisible, doute, panne du routeur. Une vraie question traitée sans outils serait hallucinée ; une salutation traitée par l'agent ne coûte que du temps." }
+    ], edges: [["rt","conv"],["rt","tool"]] },
+
+    { label: "Les middlewares", cols: 3, nodes: [
+      { id:"sp", lab:"system_prompt", sub:"date résolue à chaque appel", col:1, row:1,
+        why:"Le prompt est reconstruit à chaque appel modèle. Dans un processus qui tourne des semaines, une date figée au démarrage périme sans prévenir." },
+      { id:"fr", lab:"fresh_retrieval", sub:"réécrit l'historique", col:2, row:1, kind:"stage",
+        why:"Les tours passés ne gardent que leur conversation ; appels d'outils et extraits sont retirés. Le tour en cours reste intact.",
+        trap:"Sans lui, le modèle voit les extraits déjà récupérés, juge son contexte suffisant et ne relance pas de recherche — jusqu'à répondre « je n'ai pas trouvé » sur un document qu'il n'a jamais cherché." },
+      { id:"hitl", lab:"HumanInTheLoop", sub:"interrompt avant l'appel", col:3, row:1, kind:"stage",
+        why:"Sur les outils déclarés <code>confirm</code>, le graphe s'interrompt, l'état est persisté par le checkpointer, et la reprise se fait sur approbation explicite via <code>POST /confirm</code>." }
+    ], edges: [] },
+
+    { label: "Les outils", cols: 3, nodes: [
+      { id:"rag", lab:"rag_medhys_files", sub:"le retriever en closure", col:1, row:1, kind:"stage", into:"retrieval",
+        why:"Le schéma n'expose que <code>queries: list[str]</code> ; le retriever est capturé par closure, invisible du modèle.",
+        files:["src/tools.py — build_rag_tool"] },
+      { id:"find", lab:"calendar_find_event", sub:"outil composite", col:2, row:1,
+        why:"Encode la stratégie de recherche <b>en code</b> : recherche fullText par terme discriminant sur chaque compte, repli sur un listing large, candidats dédupliqués.",
+        bullets:["Le modèle n'a plus qu'à reconnaître le bon événement — les intitulés sont souvent abrégés."] },
+      { id:"mcpt", lab:"Outils MCP", sub:"renommés serveur_outil", col:3, row:1, kind:"ext", into:"mcp",
+        why:"Chargés au démarrage, enveloppés en outils synchrones (une boucle asyncio par appel).",
+        bullets:["Un serveur injoignable est ignoré avec un avertissement : l'agent continue sans lui."] },
+      { id:"err", lab:"Détection d'échec", sub:"sentinelle TOOL_ERROR", col:1, row:2,
+        why:"La véracité d'un échec est garantie par le code, jamais par le modèle. Trois déclencheurs : exception de l'enveloppe, résultat non-JSON quand <code>json_result = true</code>, payload d'erreur repéré par le finder.",
+        files:["src/agent.py — tool_outcomes"],
+        bullets:["Les serveurs Google renvoient leurs erreurs en texte brut dans un résultat d'apparence normale — d'où le contrôle JSON."] },
+      { id:"ckpt", lab:"Checkpointer", sub:"SqliteSaver", col:2, row:2, kind:"data",
+        why:"<code>conversations.db</code>, gardé <b>hors</b> de l'agent pour survivre aux reconstructions du pipeline après une ré-indexation.",
+        bullets:["Un <code>thread_id</code> par conversation ; les fils survivent aux redémarrages du serveur."] }
+    ], edges: [] }
+  ]
+},
+
+reponse: {
+  title: "④ La réponse",
+  intro: "Streaming vers le navigateur, citations résolues en code, sources lues dans les artifacts.",
+  zones: [
+    { label: "Le flux", cols: 4, nodes: [
+      { id:"nd", lab:"NDJSON", sub:"POST /ask", col:1, row:1, kind:"stage",
+        why:"Une ligne JSON par événement, alimentée par <code>agent.stream(stream_mode=[\"messages\",\"values\"])</code>.",
+        files:["webapp/views.py"] },
+      { id:"hb", lab:"Battements", sub:"phase + compteur", col:2, row:1, kind:"data",
+        why:"Issus du flux de tokens, throttlés : réflexion en cours, préparation d'appel d'outil, rédaction.",
+        trap:"Le <b>contenu</b> du raisonnement n'est jamais envoyé au navigateur — seul son avancement." },
+      { id:"ev", lab:"Événements d'étape", sub:"{tool, args} · {retrieved}", col:3, row:1, kind:"data",
+        why:"Issus du flux d'états. C'est ce qui alimente le radar et la ligne de détail." },
+      { id:"rad", lab:"Radar d'activité", sub:"8 axes", col:4, row:1,
+        why:"La courbe se déforme vers l'axe de ce que l'agent fait réellement. <code>TOOL_ROUTES</code> associe chaque outil à son axe par motifs ancrés, du plus spécifique au plus général.",
+        bullets:["La barre de progression est asymptotique : le nombre d'étapes étant inconnu, elle n'atteint jamais 100 %."] }
+    ], edges: [["nd","hb"],["nd","ev"],["ev","rad"]] },
+
+    { label: "La ligne finale", cols: 4, nodes: [
+      { id:"cit", lab:"parse_citations", sub:"marqueurs → sources", col:1, row:1, kind:"stage",
+        why:"Retrouve les <code>[3f2a]</code> dans la réponse, les résout via les artifacts, et les retire du texte affiché.",
+        files:["src/agent.py — parse_citations"],
+        bullets:["Un marqueur ne correspondant à aucun extrait récupéré est écarté. Le modèle qui cite est celui qui a lu les extraits."] },
+      { id:"src", lab:"collect_sources", sub:"depuis les artifacts", col:2, row:1, kind:"stage",
+        why:"Lit les <code>ToolMessage</code>, jamais la sortie du LLM. Chaque source reçoit un label unique : le nom du fichier, plus le dossier parent quand plusieurs fichiers le partagent.",
+        bullets:["Les documents comptables se répètent à l'identique d'un exercice à l'autre — sans ce label, l'interface confondrait deux années."] },
+      { id:"nh3", lab:"Markdown → nh3", sub:"assainissement", col:3, row:1,
+        why:"Le Markdown est converti côté serveur puis assaini.",
+        trap:"python-markdown laisse passer le HTML brut. Un document indexé malveillant pourrait injecter du script : le vecteur XSS passe par le <b>corpus</b>, pas par l'utilisateur." },
+      { id:"st", lab:"status", sub:"ok · partial · error", col:4, row:1, kind:"data",
+        why:"<code>error</code> : tous les appels ont échoué, la réponse du modèle est remplacée par un message fixe. <code>partial</code> : la réponse s'affiche sous un bandeau listant les outils en échec.",
+        trap:"Un échec d'accès ne doit jamais être présenté comme une donnée. « Ton agenda est vide » quand le serveur est tombé serait une réponse fausse et crédible." }
+    ], edges: [] },
+
+    { label: "Les autres routes", cols: 4, nodes: [
+      { id:"cf", lab:"POST /confirm", sub:"reprend un run interrompu", col:1, row:1,
+        why:"Le flux de <code>/ask</code> s'arrête sur une ligne <code>{confirm:[…]}</code>. Le front affiche la carte, et toute issue autre qu'une approbation vaut refus." },
+      { id:"so", lab:"GET /source", sub:"sert un document", col:2, row:1,
+        why:"Les liens <code>file://</code> sont bloqués depuis une page HTTP, d'où cette route.",
+        trap:"Restreinte aux racines indexées — 403 sinon. Sans cette garde, ce serait une lecture arbitraire du disque." },
+      { id:"ri", lab:"POST /reindex", sub:"incrémentale en fond", col:3, row:1,
+        why:"Un seul run à la fois, dans un thread d'arrière-plan. La reconstruction complète reste réservée au terminal." },
+      { id:"rs", lab:"GET /reindex/status", sub:"pollé par le front", col:4, row:1, kind:"data",
+        why:"<code>{running, result, error}</code>. La progression détaillée reste dans le terminal qui fait tourner le serveur." }
+    ], edges: [] }
+  ]
+},
+
+mcp: {
+  title: "Les serveurs MCP",
+  intro: "Trois serveurs déclarés en blocs [[mcp]], connectés au démarrage, outils renommés serveur_outil.",
+  zones: [
+    { label: "Les serveurs", cols: 3, nodes: [
+      { id:"cp", lab:"calendar_pro", sub:"stdio · npx", col:1, row:1, kind:"ext",
+        why:"Serveur communautaire <code>@cocal/google-calendar-mcp</code>, un process npx par compte. <code>GOOGLE_ACCOUNT_MODE</code> sélectionne le token." },
+      { id:"cs", lab:"calendar_perso", sub:"stdio · npx", col:2, row:1, kind:"ext",
+        why:"Même serveur, seconde instance. C'est le renommage <code>serveur_outil</code> qui permet de faire tourner le même serveur deux fois." },
+      { id:"qo", lab:"qonto", sub:"http · OAuth MCP", col:3, row:1, kind:"ext",
+        why:"Serveur officiel, transport http, authentifié par le flow OAuth du protocole MCP — découverte des métadonnées, enregistrement dynamique, PKCE et rafraîchissement.",
+        files:["src/mcp_auth.py"],
+        bullets:["<code>uv run python -m src.mcp_auth qonto</code> — autorisation unique.","Stockage sur disque dans <code>~/.secrets</code>, un fichier par serveur."] }
+    ], edges: [] },
+
+    { label: "Ce que la config verrouille", cols: 4, nodes: [
+      { id:"wl", lab:"tools (whitelist)", sub:"lecture seule", col:1, row:1, kind:"stage",
+        why:"Qonto expose <b>62 outils</b>, beaucoup en écriture (cartes, virements, factures). La whitelist n'en retient que 7, tous en lecture.",
+        bullets:["Autant une mesure de sécurité qu'un choix de qualité : un modèle local choisit mal parmi 62 outils.","Un nom absent du serveur déclenche un avertissement au démarrage."] },
+      { id:"fa", lab:"fixed_args", sub:"écrasent le modèle", col:2, row:1, kind:"stage",
+        why:"<code>account = \"pro\"</code> est forcé sur chaque appel : le modèle ne peut pas interroger un autre compte que celui de l'instance." },
+      { id:"da", lab:"default_args", sub:"comblent les oublis", col:3, row:1,
+        why:"Remplissent seulement les clés omises. <code>calendarId</code> et la fenêtre temporelle <code>@now-30d</code> / <code>@now+365d</code>, résolues à l'appel.",
+        bullets:["Le serveur exige ces paramètres alors que son schéma les présente comme optionnels — sans eux, l'appel est rejeté."] },
+      { id:"jr", lab:"json_result", sub:"contrat de payload", col:4, row:1,
+        why:"Déclare que tout résultat valide est du JSON. Tout le reste devient une erreur.",
+        trap:"Les serveurs Google renvoient leurs erreurs <b>en texte brut dans un résultat normal</b>. Sans ce contrôle, une panne passerait pour une donnée." },
+      { id:"cfm", lab:"confirm", sub:"effet de bord", col:1, row:2, kind:"stage", into:"securite",
+        why:"Aujourd'hui <code>create-event</code> sur les deux agendas. Ces outils ne s'exécutent jamais seuls.",
+        bullets:["Modification et suppression restent hors whitelist."] }
+    ], edges: [] }
+  ]
+},
+
+modeles: {
+  title: "Les modèles",
+  intro: "Quatre rôles, trois modèles, un seul serveur Ollama. Aucune donnée ne sort de la machine.",
+  zones: [
+    { label: "Les rôles", cols: 4, nodes: [
+      { id:"llm", lab:"[llm] — l'agent", sub:"qwen3.6:35b · reasoning on", col:1, row:1, kind:"ml",
+        why:"Modèle de chat de l'agent. Le raisonnement reste actif : pour un agent, la discipline d'appel d'outils vit dans la réflexion.",
+        bullets:["<code>num_predict = 4000</code> : en dessous, une réponse longue et structurée se fait tronquer."] },
+      { id:"rtr", lab:"[router]", sub:"mêmes poids · reasoning off", col:2, row:1, kind:"ml",
+        why:"Même modèle, <code>temperature = 0</code> et <code>num_predict = 200</code>. Sert le routage et la petite conversation.",
+        bullets:["<code>think</code> est un drapeau par requête : aucun poids supplémentaire n'est chargé."] },
+      { id:"vlm", lab:"[vlm] — vision", sub:"glm-ocr · reasoning off", col:3, row:1, kind:"ml",
+        why:"Transcrit les pages PDF et les images à l'ingestion. Sans raisonnement : ~12× plus rapide." },
+      { id:"emb", lab:"[embedding]", sub:"bge-m3", col:4, row:1, kind:"ml",
+        why:"Via l'API OpenAI-compatible d'Ollama. Utilisé à l'ingestion <b>et</b> à la requête.",
+        trap:"En changer impose une reconstruction complète de l'index : les espaces vectoriels ne sont pas compatibles." }
+    ], edges: [] }
+  ]
+},
+
+securite: {
+  title: "Ce qui est verrouillé",
+  intro: "Les décisions que le modèle n'a pas le droit de prendre — et la raison de chacune.",
+  zones: [
+    { label: "Sur les outils", cols: 3, nodes: [
+      { id:"s1", lab:"Whitelist par serveur", sub:"7 outils sur 62", col:1, row:1, kind:"stage", into:"mcp",
+        why:"Seuls les outils en lecture sont exposés. Ce qui n'est pas dans la liste n'existe pas pour l'agent." },
+      { id:"s2", lab:"fixed_args", sub:"compte épinglé", col:2, row:1, kind:"stage",
+        why:"Le modèle ne choisit pas le compte qu'il interroge : la valeur est écrasée après coup, quoi qu'il ait passé." },
+      { id:"s3", lab:"Confirmation humaine", sub:"arguments réels", col:3, row:1, kind:"stage",
+        why:"La carte affiche les arguments de l'appel, <b>jamais la paraphrase du modèle</b>. Ce qui est approuvé est ce qui sera envoyé.",
+        bullets:["Toute décision autre qu'une approbation explicite est un refus ; l'agent en est informé et poursuit."] }
+    ], edges: [] },
+
+    { label: "Sur les données", cols: 3, nodes: [
+      { id:"s4", lab:"Dossiers privés", sub:"préfixe _", col:1, row:1,
+        why:"Tout chemin traversant un dossier commençant par <code>_</code> est exclu de l'ingestion." },
+      { id:"s5", lab:"Racines indexées", sub:"403 hors périmètre", col:2, row:1,
+        why:"<code>GET /source</code> ne sert qu'un document sous une racine indexée. Sinon ce serait une lecture arbitraire du disque." },
+      { id:"s6", lab:"Rien dans le repo", sub:"${VAR} depuis .env", col:3, row:1, kind:"data",
+        why:"Emails, chemins Drive et credentials OAuth sont des placeholders dans <code>config.toml</code>, interpolés au chargement." }
+    ], edges: [] },
+
+    { label: "Sur la vérité affichée", cols: 3, nodes: [
+      { id:"s7", lab:"Échecs détectés en code", sub:"jamais narrés", col:1, row:1, kind:"stage",
+        why:"La sentinelle <code>TOOL_ERROR</code> et le statut structuré viennent de la couche outils. Le modèle ne raconte jamais un échec.",
+        trap:"Sans ça, une panne de serveur calendrier pourrait devenir « ton agenda est vide » — faux et crédible." },
+      { id:"s8", lab:"Citations résolues en code", sub:"marqueur inconnu = écarté", col:2, row:1, kind:"stage",
+        why:"Le modèle ne peut pas fabriquer une source : un marqueur qui ne correspond à aucun extrait récupéré est retiré." },
+      { id:"s9", lab:"nh3", sub:"assainissement HTML", col:3, row:1,
+        why:"Le corpus est un vecteur d'injection : un document indexé malveillant pourrait faire passer du script jusqu'à la page." }
+    ], edges: [] }
+  ]
+}
+
+};
+
+/* ── moteur ── */
+const stage=document.getElementById('stage'), panel=document.getElementById('panel'),
+      crumbs=document.getElementById('crumbs'), upBtn=document.getElementById('up');
+const TITLES={root:"Vue d'ensemble",ingestion:"① Ingestion",retrieval:"② Retrieval",agent:"③ Agent",
+  reponse:"④ Réponse",mcp:"Serveurs MCP",modeles:"Modèles",securite:"Verrouillages"};
+let path=['root'], nodeEls={};
+const cur=()=>V[path[path.length-1]];
+
+function render(){
+  const view=cur(); stage.innerHTML=''; nodeEls={};
+  const h=document.createElement('h2'); h.textContent=view.title; stage.appendChild(h);
+  if(view.intro){const p=document.createElement('p');p.className='intro';p.textContent=view.intro;stage.appendChild(p);}
+  view.zones.forEach((zone,zi)=>{
+    const z=document.createElement('section'); z.className='zone';
+    if(zone.label){const zh=document.createElement('h3');zh.textContent=zone.label;z.appendChild(zh);}
+    const canvas=document.createElement('div'); canvas.className='canvas';
+    const svg=document.createElementNS('http://www.w3.org/2000/svg','svg'); canvas.appendChild(svg);
+    const grid=document.createElement('div'); grid.className='grid';
+    grid.style.gridTemplateColumns='repeat('+(zone.cols||4)+', minmax(0,1fr))';
+    zone.nodes.forEach(n=>{
+      const b=document.createElement('button'); b.type='button';
+      b.className='node'+(n.kind?' k-'+n.kind:'');
+      b.style.gridColumn=String(n.col); b.style.gridRow=String(n.row);
+      b.innerHTML='<span class="lab"></span>'+(n.sub?'<span class="sub"></span>':'')+(n.into?'<span class="more">+</span>':'');
+      b.querySelector('.lab').textContent=n.lab;
+      if(n.sub) b.querySelector('.sub').textContent=n.sub;
+      b.addEventListener('click',()=>select(n,b));
+      grid.appendChild(b); nodeEls[zi+':'+n.id]=b;
+    });
+    canvas.appendChild(grid); z.appendChild(canvas); stage.appendChild(z);
+    zone._svg=svg; zone._canvas=canvas; zone._zi=zi;
+  });
+  requestAnimationFrame(()=>view.zones.forEach(drawEdges));
+  renderCrumbs();
+  panel.innerHTML='<span class="kind">Panneau</span><h3>Choisis une brique</h3>'+
+    '<p class="empty">Clique un bloc pour voir son détail. Les blocs marqués <b>+</b> ouvrent un niveau plus fin.</p>';
+}
+
+function drawEdges(zone){
+  const svg=zone._svg, canvas=zone._canvas;
+  if(!svg||!zone.edges||!zone.edges.length) return;
+  svg.innerHTML=''; const cr=canvas.getBoundingClientRect();
+  svg.setAttribute('viewBox','0 0 '+cr.width+' '+cr.height);
+  zone.edges.forEach(([a,b,mode])=>{
+    const ea=nodeEls[zone._zi+':'+a], eb=nodeEls[zone._zi+':'+b];
+    if(!ea||!eb) return;
+    const ra=ea.getBoundingClientRect(), rb=eb.getBoundingClientRect();
+    const ax=ra.left-cr.left, ay=ra.top-cr.top, bx=rb.left-cr.left, by=rb.top-cr.top;
+    const acx=ax+ra.width/2, acy=ay+ra.height/2, bcx=bx+rb.width/2, bcy=by+rb.height/2;
+    let x1,y1,x2,y2,c1x,c1y,c2x,c2y;
+    if(Math.abs(bcx-acx)>=Math.abs(bcy-acy)){
+      const r=bcx>acx;
+      x1=r?ax+ra.width:ax; y1=acy; x2=r?bx:bx+rb.width; y2=bcy;
+      const d=Math.max(18,Math.abs(x2-x1)*0.4);
+      c1x=x1+(r?d:-d); c1y=y1; c2x=x2-(r?d:-d); c2y=y2;
+    } else {
+      const dn=bcy>acy;
+      x1=acx; y1=dn?ay+ra.height:ay; x2=bcx; y2=dn?by:by+rb.height;
+      const d=Math.max(14,Math.abs(y2-y1)*0.45);
+      c1x=x1; c1y=y1+(dn?d:-d); c2x=x2; c2y=y2-(dn?d:-d);
+    }
+    const p=document.createElementNS('http://www.w3.org/2000/svg','path');
+    p.setAttribute('d','M'+x1+','+y1+' C'+c1x+','+c1y+' '+c2x+','+c2y+' '+x2+','+y2);
+    p.setAttribute('class','edge'+(mode==='back'?' back':''));
+    svg.appendChild(p);
+  });
+}
+
+function select(n,el){
+  document.querySelectorAll('.node.sel').forEach(e=>e.classList.remove('sel'));
+  el.classList.add('sel');
+  const kind = n.kind==='ml'?'Modèle':n.kind==='ext'?'Externe':n.kind==='off'?'Limite':
+               n.kind==='data'?'Donnée':n.kind==='stage'?'Étape':'Code';
+  let html='<span class="kind">'+kind+'</span><h3></h3>';
+  if(n.why) html+='<p>'+n.why+'</p>';
+  if(n.bullets) html+='<ul>'+n.bullets.map(b=>'<li>'+b+'</li>').join('')+'</ul>';
+  if(n.trap) html+='<div class="trap"><b>Piège</b>'+n.trap+'</div>';
+  if(n.files) html+='<p class="h">Fichiers</p><ul class="files">'+n.files.map(f=>'<li>'+f+'</li>').join('')+'</ul>';
+  if(n.into&&V[n.into]) html+='<button class="drill" type="button">Ouvrir « '+(TITLES[n.into]||n.into)+' » ▸</button>';
+  panel.innerHTML=html;
+  panel.querySelector('h3').textContent=n.lab;
+  const d=panel.querySelector('.drill');
+  if(d) d.addEventListener('click',()=>go(n.into));
+  panel.scrollTop=0;
+}
+
+function go(id){ if(!V[id])return; path.push(id); render(); stage.scrollTop=0; }
+function up(){ if(path.length>1){ path.pop(); render(); } }
+function renderCrumbs(){
+  crumbs.innerHTML='';
+  path.forEach((id,k)=>{
+    if(k){const s=document.createElement('span');s.className='sep';s.textContent='/';crumbs.appendChild(s);}
+    const b=document.createElement('button'); b.type='button';
+    b.textContent=TITLES[id]||id; b.disabled=k===path.length-1;
+    b.addEventListener('click',()=>{path=path.slice(0,k+1);render();});
+    crumbs.appendChild(b);
+  });
+  upBtn.hidden=path.length<2;
+}
+upBtn.addEventListener('click',up);
+document.addEventListener('keydown',e=>{if(e.key==='Escape')up();});
+window.addEventListener('resize',()=>cur().zones.forEach(drawEdges));
+render();
+</script>
+</body>
+</html>

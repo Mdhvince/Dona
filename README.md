@@ -10,6 +10,14 @@ LangGraph, Flask.
 - [docs/agentic.md](docs/agentic.md) - couche agentique : agent, outils, serveurs MCP, conversation
 - [docs/webapp.md](docs/webapp.md) - interface, routes, streaming
 
+### Visuel (ouvrir dans un navigateur)
+
+- [docs/map.html](docs/map.html) - carte interactive du système, drill-down jusqu'au fichier
+- [docs/sim-ingestion.html](docs/sim-ingestion.html) - du fichier Drive au vecteur, pas à pas
+- [docs/sim-retrieval.html](docs/sim-retrieval.html) - recherche hybride et fusion RRF, avec le calcul détaillé
+- [docs/sim-agent.html](docs/sim-agent.html) - routage, middlewares, outils, confirmation
+- [docs/sim-reponse.html](docs/sim-reponse.html) - streaming, citations, sources, échecs d'outils
+
 ## Prérequis
 
 - [Ollama](https://ollama.com) démarré, avec les modèles listés dans

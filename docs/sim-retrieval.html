@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Assistant — retrieval</title>
+<link rel="stylesheet" href="sim-core.css">
+</head>
+<body>
+<script>
+function side(n) {
+  const rows = [
+    ["requêtes reçues", "2"],
+    ["fetch_k (profondeur)", "12"],
+    ["classements fusionnés", n >= 4 ? "4" : "—"],
+    ["candidats uniques", n >= 4 ? "31" : "—"],
+    ["k (retournés)", n >= 5 ? "6" : "—"],
+    ["appels LLM", "0"]
+  ];
+  return '<h2>Recherche</h2>' + rows.map(([k, v]) =>
+    '<div class="kv"><span class="k">' + k + '</span><span class="v' + (v === "—" ? " off" : "") + '">' + v + '</span></div>').join("") +
+    '<h2>config.toml</h2><pre style="font-family:var(--fm);font-size:.7rem;color:var(--ink-2);margin:0;white-space:pre-wrap">k1 = 1.5\nb = 0.75\nk = 6\nfetch_k = 12\nrrf_k = 60</pre>';
+}
+
+/* tableau de classement */
+function rank(rows, hi) {
+  return '<div class="body" style="display:flex;flex-direction:column;gap:.1rem">' + rows.map((r, n) =>
+    '<div class="kv"><span class="k">' + (n + 1) + '. ' + r[0] + '</span><span class="v' +
+    (hi && hi.includes(r[0]) ? '' : ' off') + '">' + r[1] + '</span></div>').join("") + '</div>';
+}
+
+window.SIM = {
+  page: "retrieval",
+  title: "② Retrieval — recherche hybride, zéro LLM",
+  subtitle: "Question posée : « quel est mon revenu fiscal de référence ? »",
+  legend: ["pipeline entièrement déterministe", "chaque (requête, méthode) = un classement", "RRF : 1 / (60 + rang)"],
+  steps: [
+
+  { tag:"Étape 1", phase:"Ce que l'outil reçoit", side:side(0),
+    narr:"L'agent n'envoie pas une chaîne mais une <b>liste</b> de formulations. Le schéma de l'outil n'expose que ça — le retriever lui-même est capturé par closure, invisible du modèle.",
+    stage:
+      '<div class="box"><h4>Appel d\'outil</h4><pre>rag_medhys_files(queries=[\n  "revenu fiscal de référence",\n  "montant imposable avis d\'imposition 2025"\n])</pre></div>'+
+      '<div class="note"><b>Pourquoi plusieurs formulations</b>Chaque couple (requête, méthode) devient un classement de plus dans la fusion. Deux façons de dire le même besoin se <b>renforcent</b> sur les documents qu\'elles classent bien toutes les deux, au lieu de se concurrencer.</div>' },
+
+  { tag:"Étape 2", phase:"Recherche sémantique", side:side(2),
+    narr:"Similarité vectorielle dans Chroma, sur profondeur <code>fetch_k = 12</code>. Elle trouve le sens même quand les mots diffèrent.",
+    stage:
+      '<div class="box"><h4>Chroma — requête 1, top 5</h4>'+
+      rank([["avis_imposition_2025.pdf p.1","0.87"],["avis_imposition_2024.pdf p.1","0.84"],
+            ["fiche_paie_dec.pdf p.1","0.71"],["avis_imposition_2025.pdf p.2","0.69"],
+            ["contrat_pret.pdf p.3","0.62"]], ["avis_imposition_2025.pdf p.1"])+'</div>'+
+      '<div class="note warn"><b>Sa faiblesse</b>Elle rapproche 2025 et 2024 parce qu\'ils <i>parlent de la même chose</i>. Sur une question qui porte un terme discriminant précis, elle ne sait pas trancher entre deux exercices.</div>' },
+
+  { tag:"Étape 3", phase:"Recherche par mots-clés", side:side(3),
+    narr:"BM25, sur une tokenisation pensée pour le français. C'est elle qui rattrape ce que le sémantique laisse flou.",
+    stage:
+      '<div class="box"><h4>tokenize() — trois normalisations</h4><pre>"quel est mon revenu fiscal de référence ?"\n\n  ↓ minuscules + accents retirés   <span class="c">"numero" trouve "numéro"</span>\n  ↓ stopwords retirés              <span class="c">quel, est, mon, de → écartés</span>\n  ↓ racinisation Snowball FR       <span class="c">"création"/"créer" → "cre"</span>\n\n["revenu", "fiscal", "referenc"]</pre></div>'+
+      '<div class="box"><h4>BM25 — requête 1, top 5</h4>'+
+      rank([["avis_imposition_2025.pdf p.1","14.2"],["avis_imposition_2023.pdf p.1","13.8"],
+            ["avis_imposition_2024.pdf p.1","13.1"],["notice_impots.pdf p.2","8.4"],
+            ["avis_imposition_2025.pdf p.2","6.0"]], ["avis_imposition_2025.pdf p.1"])+'</div>' },
+
+  { tag:"Étape 4", phase:"Fusion RRF", side:side(4),
+    narr:"Chaque document reçoit <b>1 / (60 + rang)</b> dans chaque classement où il apparaît, et les scores s'additionnent. Un document bien classé par les deux méthodes remonte.",
+    stage:
+      '<div class="box"><h4>Le calcul, sur 3 documents</h4><pre>avis_2025 p.1   sémantique rang 1 → 1/61 = 0.0164\n                BM25       rang 1 → 1/61 = 0.0164\n                <span class="c">(× 2 requêtes)</span>          <span class="g">total 0.0656</span>\n\navis_2024 p.1   sémantique rang 2 → 1/62 = 0.0161\n                BM25       rang 3 → 1/63 = 0.0159\n                                          <span class="c">total 0.0320</span>\n\nfiche_paie      sémantique rang 3 → 1/63 = 0.0159\n                BM25       absent  →     0\n                                          <span class="c">total 0.0159</span></pre></div>'+
+      '<div class="note"><b>Ce que fait le rrf_k = 60</b>Il aplatit l\'écart entre les premiers rangs. Sans lui, le rang 1 écraserait tout et la fusion reviendrait à « celui qui gagne un classement gagne ». Avec, être <b>correct partout</b> bat être premier une seule fois.</div>' },
+
+  { tag:"Étape 5", phase:"Le résultat", side:side(5),
+    narr:"Les 6 meilleurs après fusion. Le bon exercice est remonté parce qu'il gagnait dans les deux méthodes et sur les deux formulations.",
+    stage:
+      '<div class="box"><h4>4 classements fusionnés → 31 candidats → top 6</h4>'+
+      rank([["avis_imposition_2025.pdf p.1","0.0656"],["avis_imposition_2024.pdf p.1","0.0320"],
+            ["avis_imposition_2023.pdf p.1","0.0243"],["avis_imposition_2025.pdf p.2","0.0238"],
+            ["fiche_paie_dec.pdf p.1","0.0159"],["notice_impots.pdf p.2","0.0155"]],
+            ["avis_imposition_2025.pdf p.1","avis_imposition_2025.pdf p.2"])+'</div>' },
+
+  { tag:"Étape 6", phase:"Mise en forme pour l'agent", side:side(5),
+    narr:"Chaque extrait reçoit un <b>marqueur unique aléatoire</b> et le nom de son fichier. C'est ce texte-là qui entre dans le contexte du modèle.",
+    stage:
+      '<div class="box"><h4>format_context()</h4><pre>[3f2a] (avis_imposition_2025.pdf, page 1) Avis d\'impôt…\n       | Revenu fiscal de référence | 48 210 € |\n\n[9c17] (avis_imposition_2024.pdf, page 1) Avis d\'impôt…\n       | Revenu fiscal de référence | 45 880 € |\n\n[b04e] (avis_imposition_2023.pdf, page 1) …</pre></div>'+
+      '<div class="cols">'+
+      '<div class="box"><h4>Ce qui part dans le contexte</h4><div class="body" style="font-size:.85rem;color:var(--ink-2)">Le texte numéroté ci-dessus, avec nom de fichier et page — de quoi distinguer deux exercices.</div></div>'+
+      '<div class="box"><h4>Ce qui voyage en artifact</h4><div class="body" style="font-size:.85rem;color:var(--ink-2)">Les métadonnées <code>{path, page, id}</code> transitent dans le <code>ToolMessage</code> <b>sans repasser par le LLM</b>. C\'est ce qui rend les sources affichées incontestables.</div></div>'+
+      '</div>' },
+
+  { tag:"Bilan", phase:"Ce qu'il faut retenir", side:side(5),
+    narr:"Trois propriétés qui expliquent la plupart des comportements observés.",
+    stage:
+      '<div class="cols3 stagger">'+
+      '<div class="box"><h4>Zéro LLM</h4><div class="body" style="font-size:.85rem;color:var(--ink-2)"><code>search()</code> est une fonction pure. Mêmes requêtes, mêmes documents. Tout le non-déterminisme est en amont (les formulations choisies par l\'agent) ou en aval (la rédaction).</div></div>'+
+      '<div class="box"><h4>BM25 vit en mémoire</h4><div class="body" style="font-size:.85rem;color:var(--ink-2)">L\'index est reconstruit au démarrage de la webapp et après chaque ré-indexation. Il n\'est jamais persisté — un redémarrage suffit à le régénérer.</div></div>'+
+      '<div class="box"><h4>Pas d\'évaluation</h4><div class="body" style="font-size:.85rem;color:var(--ink-2)">Aucun jeu de questions/réponses de référence. Régler <code>k</code>, <code>fetch_k</code> ou <code>rrf_k</code> se fait aujourd\'hui à l\'intuition — c\'est la limite la plus coûteuse du pipeline.</div></div>'+
+      '</div>' }
+
+]};
+</script>
+<script src="sim-core.js"></script>
+</body>
+</html>

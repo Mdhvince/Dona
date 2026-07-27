@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Assistant — agent</title>
+<link rel="stylesheet" href="sim-core.css">
+</head>
+<body>
+<script>
+function side(n) {
+  const rows = [
+    ["thread_id", "a91f-77c2"],
+    ["route", n >= 2 ? "OUTILS" : "—"],
+    ["reasoning", n >= 2 ? "activé" : "—"],
+    ["outils exposés", n >= 4 ? "16" : "—"],
+    ["appels du tour", n >= 5 ? "1" : "—"],
+    ["échecs détectés", n >= 6 ? "0" : "—"]
+  ];
+  return '<h2>Tour en cours</h2>' + rows.map(([k, v]) =>
+    '<div class="kv"><span class="k">' + k + '</span><span class="v' + (v === "—" ? " off" : "") + '">' + v + '</span></div>').join("") +
+    '<h2>Un seul modèle</h2><div style="font-size:.82rem;color:var(--ink-2);line-height:1.5">' +
+    '<code>qwen3.6:35b</code> sert les trois rôles — routeur, conversation, agent. <code>think</code> étant un drapeau par requête, les poids déjà chargés suffisent : aucune mémoire supplémentaire.</div>';
+}
+
+window.SIM = {
+  page: "agent",
+  title: "③ L'agent — router, chercher, agir",
+  subtitle: "Question posée : « quel est mon revenu fiscal de référence ? »",
+  legend: ["tout sauf un CONVERSATION explicite va à l'agent complet", "les échecs d'outils sont détectés en code", "une action à effet de bord ne part jamais seule"],
+  steps: [
+
+  { tag:"Étape 1", phase:"Le routeur", side:side(1),
+    narr:"Un graphe LangGraph place un routeur devant deux branches qui partagent le même historique. Il ne répond que par CONVERSATION ou OUTILS.",
+    stage:
+      '<div class="box"><h4>Décision</h4><pre>router_llm.invoke(ROUTER_PROMPT.format(message=…))\n<span class="c">→ "OUTILS"</span></pre></div>'+
+      '<div class="note"><b>Le biais est volontaire</b>Réponse illisible, doute, panne du routeur : <b>tout</b> mène à l\'agent complet. Une vraie question traitée sans outils serait hallucinée ; une salutation traitée par l\'agent ne coûte que du temps. L\'asymétrie des coûts dicte le défaut.</div>' },
+
+  { tag:"Étape 1 bis", phase:"Si c'était une salutation", side:side(1),
+    narr:"La branche conversation répond directement, sans outils et sans réflexion — une fraction de seconde au lieu des ~20 s que coûte le raisonnement.",
+    stage:
+      '<div class="cols">'+
+      '<div class="box"><h4>« salut ! »</h4><pre>route      = CONVERSATION\nreasoning  = false\noutils     = aucun\nhistorique = le fil, nettoyé de ses appels d\'outils</pre></div>'+
+      '<div class="box"><h4>Pourquoi lui donner l\'historique</h4><div class="body" style="font-size:.85rem;color:var(--ink-2)">Pour qu\'elle comprenne les références (« et lui ? »). Mais sans outils : elle ne peut ni chercher, ni inventer une donnée qu\'elle n\'a pas.</div></div>'+
+      '</div>' },
+
+  { tag:"Étape 2", phase:"Les middlewares", side:side(2),
+    narr:"Avant chaque appel modèle, deux middlewares réécrivent la requête.",
+    stage:
+      '<div class="cols">'+
+      '<div class="box"><h4>system_prompt (dynamic_prompt)</h4><div class="body" style="font-size:.85rem;color:var(--ink-2)">Le prompt est reconstruit <b>à chaque appel</b> avec la date du jour. Dans un processus qui tourne des semaines, une date figée au démarrage périme sans prévenir.</div></div>'+
+      '<div class="box"><h4>fresh_retrieval (wrap_model_call)</h4><div class="body" style="font-size:.85rem;color:var(--ink-2)">Les tours passés ne gardent que leur conversation. Appels d\'outils et extraits sont retirés — le tour en cours reste intact.</div></div>'+
+      '</div>'+
+      '<div class="note neg"><b>Le bug que fresh_retrieval évite</b>Sans lui, le modèle voit les extraits déjà récupérés, juge son contexte suffisant et <b>ne relance pas de recherche</b> — jusqu\'à répondre « je n\'ai pas trouvé » sur un document qu\'il n\'a jamais cherché. Les appels passés partent <i>avec</i> leurs résultats : un appel orphelin est rejeté par certains fournisseurs.</div>' },
+
+  { tag:"Étape 3", phase:"L'historique réécrit", side:side(2),
+    narr:"Ce que le modèle voit réellement au tour 3 d'une conversation.",
+    stage:
+      '<div class="box"><h4>Avant / après</h4><pre><span class="c">— stocké par le checkpointer —</span>\nHuman   « mes revenus 2024 ? »\nAI      (tool_call rag_medhys_files)\nTool    [7 extraits, 4 200 tokens]\nAI      « 45 880 € [9c17] »\nHuman   « et 2025 ? »\n\n<span class="c">— vu par le modèle —</span>\nHuman   « mes revenus 2024 ? »\nAI      « 45 880 € »        <span class="g">← texte seul</span>\nHuman   « et 2025 ? »       <span class="g">← tour courant intact</span></pre></div>'+
+      '<div class="note"><b>Le fil reste compréhensible</b>Les réponses passées conservent leur texte, donc « et 2025 ? » se résout sans ambiguïté. Seule la mécanique d\'outils disparaît.</div>' },
+
+  { tag:"Étape 4", phase:"Les outils disponibles", side:side(4),
+    narr:"Trois familles, toutes construites par l'appelant et passées à l'agent.",
+    stage:
+      '<div class="box"><h4>16 outils exposés</h4><div class="body stagger" style="display:flex;flex-direction:column;gap:.1rem">'+
+      '<div class="kv"><span class="k">rag_medhys_files</span><span class="v"><span class="pill ok">documents</span></span></div>'+
+      '<div class="kv"><span class="k">calendar_find_event</span><span class="v"><span class="pill ok">composite</span></span></div>'+
+      '<div class="kv"><span class="k">calendar_pro_* (6)</span><span class="v"><span class="pill n">MCP stdio</span></span></div>'+
+      '<div class="kv"><span class="k">calendar_perso_* (6)</span><span class="v"><span class="pill n">MCP stdio</span></span></div>'+
+      '<div class="kv"><span class="k">qonto_* (7 sur 62)</span><span class="v"><span class="pill w">MCP http, lecture</span></span></div>'+
+      '</div></div>'+
+      '<div class="note"><b>Pourquoi 7 outils Qonto sur 62</b>C\'est autant une mesure de sécurité qu\'un choix de qualité : le serveur expose des virements et des cartes, et <b>un modèle local choisit mal parmi 62 outils</b>. La whitelist ne garde que la lecture.</div>' },
+
+  { tag:"Étape 4 bis", phase:"Ce que la config verrouille", side:side(4),
+    narr:"Trois mécanismes retirent au modèle le contrôle de ce qu'il ne doit pas contrôler.",
+    stage:
+      '<div class="cols3 stagger">'+
+      '<div class="box"><h4>fixed_args</h4><div class="body" style="font-size:.85rem;color:var(--ink-2)">Écrasent ce que le modèle passe. <code>account = "pro"</code> : l\'instance pro ne peut pas interroger l\'agenda perso, même si le modèle le demande.</div></div>'+
+      '<div class="box"><h4>default_args</h4><div class="body" style="font-size:.85rem;color:var(--ink-2)">Comblent seulement ce qu\'il a omis. <code>@now-30d</code> / <code>@now+365d</code> sont résolus à l\'appel — sans fenêtre temporelle, le serveur rejette.</div></div>'+
+      '<div class="box"><h4>json_result</h4><div class="body" style="font-size:.85rem;color:var(--ink-2)">Déclare que tout résultat valide est du JSON. Les serveurs Google renvoient leurs erreurs en texte brut dans un résultat d\'apparence normale.</div></div>'+
+      '</div>' },
+
+  { tag:"Étape 5", phase:"L'appel et sa vérification", side:side(6),
+    narr:"L'agent appelle l'outil RAG. La véracité d'un échec est garantie par le <b>code</b>, jamais par le modèle.",
+    stage:
+      '<div class="box"><h4>Les trois façons de détecter un échec</h4><pre>1. exception dans l\'enveloppe        → <span class="r">[TOOL_ERROR]</span> + message tronqué\n2. résultat non-JSON alors que        → <span class="r">[TOOL_ERROR]</span>\n   json_result = true\n3. payload d\'erreur repéré par        → <span class="r">[TOOL_ERROR]</span>\n   le finder calendrier</pre></div>'+
+      '<div class="box"><h4>tool_outcomes() — bilan du tour</h4><pre>appels : 1    réussis : 1    échoués : 0\nstatus : "ok"</pre></div>'+
+      '<div class="note"><b>Trois statuts possibles</b><code>ok</code> · <code>partial</code> (certains appels ont échoué → bandeau listant les outils fautifs) · <code>error</code> (tous ont échoué → message fixe à la place de la réponse). Un échec d\'accès n\'est <b>jamais</b> présenté comme une donnée : « ton agenda est vide » ne peut pas venir d\'une panne.</div>' },
+
+  { tag:"Étape 6", phase:"Action à effet de bord", side:side(6),
+    narr:"Si la question avait été « ajoute un point à 15h demain », le graphe se serait <b>interrompu avant</b> l'appel.",
+    stage:
+      '<div class="box"><h4>La carte de confirmation</h4><pre>calendar_pro_create_event\n\n  summary   : "Point équipe"\n  start     : 2026-07-28T15:00:00+02:00\n  end       : 2026-07-28T16:00:00+02:00\n  calendarId: "primary"\n  account   : "pro"          <span class="c">← fixed_arg</span>\n\n        [ Confirmer ]   [ Annuler ]</pre></div>'+
+      '<div class="note"><b>Les arguments réels, pas la paraphrase</b>La carte affiche ce qui sera <b>envoyé</b>, pas ce que le modèle raconte qu\'il va faire. Ce qui est approuvé est ce qui part. L\'état interrompu est persisté par le checkpointer, et toute issue autre qu\'une approbation explicite vaut refus — l\'agent en est informé et poursuit sa réponse.</div>' },
+
+  { tag:"Bilan", phase:"La conversation", side:side(6),
+    narr:"Un <code>SqliteSaver</code> sur <code>conversations.db</code> garde les fils entre les redémarrages.",
+    stage:
+      '<div class="cols">'+
+      '<div class="box"><h4>thread_id</h4><div class="body" style="font-size:.85rem;color:var(--ink-2)">Même thread = même conversation, avec résolution des références. Le checkpointer renvoie tout l\'historique ; <code>current_turn()</code> isole les messages du tour courant.</div></div>'+
+      '<div class="box"><h4>Hors de l\'agent</h4><div class="body" style="font-size:.85rem;color:var(--ink-2)">Le checkpointer est gardé à l\'extérieur pour <b>survivre aux reconstructions</b> du pipeline après une ré-indexation. Reconstruire l\'agent ne doit pas effacer les conversations.</div></div>'+
+      '</div>' }
+
+]};
+</script>
+<script src="sim-core.js"></script>
+</body>
+</html>

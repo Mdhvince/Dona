@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Assistant — ingestion</title>
+<link rel="stylesheet" href="sim-core.css">
+</head>
+<body>
+<script>
+function side(n) {
+  const rows = [
+    ["fichier", "avis_imposition_2025.pdf"],
+    ["format de sortie", n >= 3 ? "markdown" : "—"],
+    ["pages rendues", n >= 2 ? "3" : "—"],
+    ["chunks produits", n >= 5 ? "7" : "—"],
+    ["embeddings", n >= 6 ? "7 × 1024" : "—"],
+    ["dans Chroma", n >= 6 ? "oui" : "—"]
+  ];
+  return '<h2>Fichier en cours</h2>' + rows.map(([k, v]) =>
+    '<div class="kv"><span class="k">' + k + '</span><span class="v' + (v === "—" ? " off" : "") + '">' + v + '</span></div>').join("") +
+    '<h2>Tout est local</h2><div style="font-size:.82rem;color:var(--ink-2);line-height:1.5">' +
+    'Vision <code>glm-ocr</code>, embeddings <code>bge-m3</code>, LLM <code>qwen3.6</code> — tous servis par Ollama sur la machine. Aucun document ne sort.</div>';
+}
+
+window.SIM = {
+  page: "ingestion",
+  title: "① Ingestion — du fichier Drive au vecteur",
+  subtitle: "Exemple : un avis d'imposition en PDF, 3 pages, dans un Drive monté localement",
+  legend: ["la stratégie suit le format de SORTIE, jamais le suffixe d'origine", "un dossier commençant par _ est exclu", "reconstruction complète ≈ 30 s / page"],
+  steps: [
+
+  { tag:"Étape 1", phase:"Le périmètre", side:side(0),
+    narr:"L'ingestion parcourt les racines listées dans <code>DOCS_DIRS</code> — des montages Google Drive. Les chemins personnels restent dans <code>.env</code>, interpolés dans <code>config.toml</code> au chargement.",
+    stage:
+      '<div class="cols">'+
+      '<div class="box"><h4>Formats reconnus</h4><pre>.pdf  .png .jpg .jpeg     <span class="c">→ modèle vision</span>\n.docx .pptx .html .htm   <span class="c">→ MarkItDown</span>\n.md                      <span class="c">→ tel quel</span>\n.txt                     <span class="c">→ texte brut</span></pre></div>'+
+      '<div class="box"><h4>Exclusions</h4><pre><span class="r">.csv .xlsx</span>  <span class="c">données structurées, pas du document</span>\n<span class="r">_prive/</span>     <span class="c">tout chemin traversant un dossier</span>\n            <span class="c">commençant par « _ »</span></pre></div>'+
+      '</div>' },
+
+  { tag:"Étape 2", phase:"Rendu des pages", side:side(2),
+    narr:"Chaque page du PDF est rendue en image PNG à 150 DPI par pypdfium2. On ne cherche pas à extraire du texte — on fabrique une image.",
+    stage:
+      '<div class="box"><h4>src/ingestion_utilities.py</h4><pre>RENDER_DPI = 150\n\npage 1 → PNG  <span class="c">(1240 × 1754 px)</span>\npage 2 → PNG\npage 3 → PNG</pre></div>' },
+
+  { tag:"Étape 3", phase:"Transcription par modèle vision", side:side(3),
+    narr:"<code>glm-ocr</code> lit l'image et rend du Markdown. <code>reasoning = false</code> : transcrire ne demande aucun raisonnement, et ça va environ 12 fois plus vite.",
+    stage:
+      '<div class="cols">'+
+      '<div class="box"><h4>Sortie du VLM (extrait)</h4><pre># Avis d\'impôt sur le revenu 2025\n\n## Vos références\n\n| Champ | Valeur |\n|---|---|\n| Numéro fiscal | 12 34 567 890 123 |\n| Revenu fiscal de référence | 48 210 € |</pre></div>'+
+      '<div class="box"><h4>Pourquoi pas un extracteur texte</h4><div class="body" style="font-size:.85rem;color:var(--ink-2)">Sur un document administratif en colonnes, les extracteurs et parsers de layout <b>dissocient le libellé de sa valeur</b>. « Revenu fiscal de référence » se retrouve loin de « 48 210 € », et l\'embedding perd l\'association. Un modèle vision la préserve parce qu\'il voit la mise en page.</div></div>'+
+      '</div>'+
+      '<div class="note neg"><b>Limite assumée</b>Aucune vérification automatique des transcriptions. Une erreur du modèle vision se propage silencieusement dans l\'index — et rien en aval ne la rattrapera.</div>' },
+
+  { tag:"Étape 3 bis", phase:"Les formats déjà balisés", side:side(3),
+    narr:"Un .docx, .pptx ou .html porte déjà sa structure dans son balisage. MarkItDown la lit et la rend en Markdown : ni VLM, ni heuristique.",
+    stage:
+      '<div class="box"><h4>Le principe</h4><pre>OOXML / DOM  →  MarkItDown  →  Markdown\n\n<span class="c">styles de titres et arbre DOM repris tels quels,</span>\n<span class="c">aucune structure inventée</span></pre></div>'+
+      '<div class="note"><b>La règle qui gouverne tout</b><code>load_file()</code> renvoie le <b>format qu\'il a produit</b>, et <code>create_chunks()</code> aiguille là-dessus. Un PDF transcrit par le VLM <i>est</i> du Markdown, et se découpe comme tel. Le suffixe d\'origine ne décide de rien.</div>' },
+
+  { tag:"Étape 4", phase:"Découpage", side:side(5),
+    narr:"Découpage structurel d'abord : on coupe sur les titres, donc une section reste entière — tableaux compris. Le découpage récursif n'intervient que sur les sections encore trop longues.",
+    stage:
+      '<div class="box"><h4>MarkdownHeaderTextSplitter → 7 chunks</h4><div class="body stagger" style="display:flex;flex-direction:column;gap:.1rem">'+
+      '<div class="kv"><span class="k">« Vos références »</span><span class="v">412 car.</span></div>'+
+      '<div class="kv"><span class="k">« Détail du calcul » <span class="pill w">1 340 car.</span></span><span class="v">→ recoupé ×2</span></div>'+
+      '<div class="kv"><span class="k">« Vos versements »</span><span class="v">680 car.</span></div>'+
+      '<div class="kv"><span class="k">« Informations pratiques »</span><span class="v">910 car.</span></div>'+
+      '</div></div>'+
+      '<div class="box"><h4>Le chemin de titres est préfixé au texte</h4><pre>Avis d\'impôt sur le revenu 2025 > Vos références\n\n| Numéro fiscal | 12 34 567 890 123 |\n…</pre></div>'+
+      '<div class="note"><b>Deux usages du même chemin</b>Préfixé au texte, il donne du contexte à l\'embedding — un chunk isolé sait de quel document il vient. Stocké en métadonnée <code>section</code>, il sert à l\'affichage.</div>' },
+
+  { tag:"Étape 4 bis", phase:"Le cas du .txt", side:side(5),
+    narr:"Un fichier texte n'a aucune structure à suivre : découpage récursif seul, sur les frontières de paragraphe, puis de phrase, puis de mot. Pas de métadonnée <code>section</code>.",
+    stage:
+      '<div class="note"><b>Pourquoi ne pas le convertir en Markdown</b>Ce serait inventer des titres absents de la source. Ces faux titres finiraient préfixés dans l\'embedding <i>et</i> dans le contexte lu par l\'agent. Le repli récursif est explicite, pas subi.</div>' },
+
+  { tag:"Étape 5", phase:"Embeddings et stockage", side:side(6),
+    narr:"Chaque chunk est embeddé par <code>bge-m3</code>, via l'API OpenAI-compatible d'Ollama, et persisté dans Chroma.",
+    stage:
+      '<div class="box"><h4>Un chunk indexé</h4><pre>{\n  "text": "Avis d\'impôt… > Vos références\\n| Numéro fiscal | … |",\n  "embedding": [0.021, -0.118, …],   <span class="c">// 1024 dim</span>\n  "metadata": {\n    "source": "/Volumes/GoogleDrive/…/avis_imposition_2025.pdf",\n    "page": 1,\n    "mtime": 1753382410.0,\n    "section": "Avis d\'impôt sur le revenu 2025 > Vos références"\n  }\n}</pre></div>'+
+      '<div class="note warn"><b>Un seul modèle d\'embedding</b>L\'ingestion et la requête partagent <code>config.embedding_client</code>. Changer de modèle rend les espaces vectoriels incompatibles : il faut alors une reconstruction complète (<code>--full</code>).</div>' },
+
+  { tag:"Étape 6", phase:"Ingestion incrémentale", side:side(6),
+    narr:"<code>run()</code> compare le disque et l'index, et ne retouche que ce qui a bougé.",
+    stage:
+      '<div class="box"><h4>Les quatre cas</h4><div class="body stagger" style="display:flex;flex-direction:column;gap:.1rem">'+
+      '<div class="kv"><span class="k">nouveau fichier</span><span class="v"><span class="pill ok">indexé</span></span></div>'+
+      '<div class="kv"><span class="k">mtime différent (tolérance 1 s)</span><span class="v"><span class="pill w">ré-indexé</span></span></div>'+
+      '<div class="kv"><span class="k">fichier disparu</span><span class="v"><span class="pill no">chunks supprimés</span></span></div>'+
+      '<div class="kv"><span class="k">inchangé</span><span class="v"><span class="pill n">ignoré</span></span></div>'+
+      '</div></div>'+
+      '<div class="note"><b>La tolérance d\'une seconde</b>Elle n\'est pas cosmétique : les montages cloud font varier les mtimes de quelques fractions de seconde sans que le contenu change. Sans elle, chaque run ré-indexerait tout le Drive.</div>' },
+
+  { tag:"Bilan", phase:"Les deux commandes", side:side(6),
+    narr:"L'incrémentale au quotidien, la complète seulement après un changement de modèle d'embedding.",
+    stage:
+      '<div class="box"><h4>Terminal</h4><pre>uv run python -m src.ingestor\n<span class="c"># incrémentale — quelques secondes</span>\n\ncaffeinate -i uv run python -m src.ingestor --full\n<span class="c"># complète — ~30 s par page, d\'où le caffeinate</span></pre></div>'+
+      '<div class="note"><b>Depuis l\'interface</b>Le menu ⋮ lance une incrémentale dans un thread d\'arrière-plan, un run à la fois. La complète reste réservée au terminal : plusieurs heures de batch n\'ont rien à faire derrière une requête HTTP.</div>' }
+
+]};
+</script>
+<script src="sim-core.js"></script>
+</body>
+</html>
