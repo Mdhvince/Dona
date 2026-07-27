@@ -23,15 +23,15 @@ def system_prompt(request: ModelRequest) -> str:
     return SYSTEM_PROMPT.format(date=date.today().strftime("%d/%m/%Y"))
 
 
-def current_turn_start_index(messages):
-    """Where the turn being answered right now begins: the last question asked.
+def index_of_last_question(messages):
+    """Where the turn being answered right now begins.
     :param messages: The message history.
-    :return: The index of the last question, or the end of the history when it holds none.
+    :return: The index of the last question, or None when the history holds none.
     """
     for index in reversed(range(len(messages))):
         if isinstance(messages[index], HumanMessage):
             return index
-    return len(messages)
+    return None
 
 
 def is_question_or_answer(message):
@@ -66,7 +66,9 @@ def conversation_only(messages):
     :param messages: The message history.
     :return: The history with the tool traces of the past turns removed.
     """
-    turn_start = current_turn_start_index(messages)
+    turn_start = index_of_last_question(messages)
+    if turn_start is None:
+        turn_start = len(messages)
     past_turns = [strip_tool_calls(message)
                   for message in messages[:turn_start] if is_question_or_answer(message)]
     return past_turns + messages[turn_start:]
@@ -151,12 +153,13 @@ def parse_citations(answer_text, retrieved):
 
 
 def current_turn(messages):
-    """Messages of the ongoing exchange: everything from the last human
-    message onward (the checkpointer brings the whole history back)."""
-    for i in range(len(messages) - 1, -1, -1):
-        if isinstance(messages[i], HumanMessage):
-            return messages[i:]
-    return messages
+    """Messages of the ongoing exchange: everything from the last question
+    onward (the checkpointer brings the whole history back).
+    :param messages: The message history.
+    :return: The messages of the current turn, or the whole history when it holds no question.
+    """
+    turn_start = index_of_last_question(messages)
+    return messages if turn_start is None else messages[turn_start:]
 
 
 def source_label(info):
