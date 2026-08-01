@@ -2,6 +2,7 @@ import re
 from collections import Counter
 from datetime import date
 from pathlib import Path
+from typing import NamedTuple
 
 from langchain.agents import create_agent
 from langchain.agents.middleware import (HumanInTheLoopMiddleware, ModelRequest,
@@ -9,18 +10,29 @@ from langchain.agents.middleware import (HumanInTheLoopMiddleware, ModelRequest,
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 from langgraph.graph import END, START, MessagesState, StateGraph
 
-from src.prompt import CONVERSATION_PROMPT, ROUTER_PROMPT, SYSTEM_PROMPT
+from src.prompt import CONVERSATION_PROMPT, ROUTER_PROMPT
 from src.tools import TOOL_ERROR
 
 
 CITATION_MARKER = re.compile(r" ?\[([0-9a-f]{4})\]")
 
 
-@dynamic_prompt
-def system_prompt(request: ModelRequest) -> str:
-    """Resolved at every model call so the date never goes stale in a
-    long-lived process."""
-    return SYSTEM_PROMPT.format(date=date.today().strftime("%d/%m/%Y"))
+class AgentProfile(NamedTuple):
+    """Everything one agent branch is made of: its model, its tools, the
+    rules it plays by, and the tools it may only run after confirmation."""
+    llm: object
+    tools: tuple
+    system_prompt: str
+    tools_needing_confirmation: tuple = ()
+
+
+def dated_system_prompt(template):
+    """Middleware resolving the system prompt at every model call, so the
+    date never goes stale in a long-lived process."""
+    @dynamic_prompt
+    def resolve(request: ModelRequest) -> str:
+        return template.format(date=date.today().strftime("%d/%m/%Y"))
+    return resolve
 
 
 def index_of_last_question(messages):
@@ -81,58 +93,85 @@ def fresh_retrieval(request, handler):
     return handler(request.override(messages=conversation_only(request.messages)))
 
 
-def choose_route(router_llm, message):
-    """CONVERSATION only when the message clearly needs no data: anything
-    else, including any doubt or an unreadable answer, goes to the tool
-    agent. Misrouting a real question would answer it without tools."""
+def router_history(messages, kept_exchanges=6, excerpt_length=300):
+    """The past conversation as short plain-text lines, so the router can
+    resolve a follow-up ("et le mois d'avant ?") from what was being
+    discussed. Words only, bounded: never the tool traces, and never more
+    than the router needs to decide.
+    :param messages: The message history, current question included.
+    :return: One line per past question or answer, empty for a first question.
+    """
+    past = [message for message in messages[:-1] if is_question_or_answer(message)]
+    return "\n".join(
+        f"{'Moi' if isinstance(message, HumanMessage) else 'Assistant'} : "
+        f"{str(message.content)[:excerpt_length]}"
+        for message in past[-kept_exchanges:])
+
+
+def choose_route(router_llm, messages):
+    """CONVERSATION only when the message clearly needs no data, LOCAL for
+    what the local model handles (documents, calendars), and CRITIQUE -
+    banking, emails - for everything else, unreadable verdicts and doubt
+    included: the critical agent can do all the local one can, the reverse
+    is false. A router failure falls back on the local branch instead, so
+    the assistant keeps working when the hosted router is unreachable."""
+    prompt = ROUTER_PROMPT.format(history=router_history(messages),
+                                  message=messages[-1].content)
     try:
-        verdict = router_llm.invoke(ROUTER_PROMPT.format(message=message)).content
+        verdict = str(router_llm.invoke(prompt).content).upper()
     except Exception:
-        return "agent"
-    return "conversation" if "CONVERSATION" in str(verdict).upper() else "agent"
+        return "agent_local"
+    if "CONVERSATION" in verdict:
+        return "conversation"
+    if "LOCAL" in verdict:
+        return "agent_local"
+    return "agent_critical"
 
 
-def build_graph(llm, router_llm, tools, checkpointer=None, tools_needing_confirmation=()):
-    """Router in front of two branches sharing one message history: small
-    talk answered directly by a no-thinking call, everything else by the
-    tool agent (citations, confirmations, fresh retrieval). The checkpointer
-    sits on the parent graph; interrupts and resumes propagate through it."""
-    agent_with_tools = build_agent(llm, tools, tools_needing_confirmation=tools_needing_confirmation)
-
+def build_graph(router_llm, conversation_llm, local_profile, critical_profile, checkpointer=None):
+    """Router in front of three branches sharing one message history: small
+    talk answered directly by a local no-thinking call, documents and
+    calendars by the local agent, banking and emails by the critical agent
+    (stronger hosted model). The checkpointer sits on the parent graph;
+    interrupts and resumes propagate through it."""
     def conversation(state):
         prompt = CONVERSATION_PROMPT.format(date=date.today().strftime("%d/%m/%Y"))
         messages = [SystemMessage(content=prompt), *conversation_only(state["messages"])]
-        return {"messages": [router_llm.invoke(messages)]}
+        return {"messages": [conversation_llm.invoke(messages)]}
 
     graph = StateGraph(MessagesState)
     graph.add_node("conversation", conversation)
-    graph.add_node("agent", agent_with_tools)
+    graph.add_node("agent_local", build_agent(local_profile))
+    graph.add_node("agent_critical", build_agent(critical_profile))
     graph.add_conditional_edges(
         START,
-        lambda state: choose_route(router_llm, state["messages"][-1].content),
-        {"conversation": "conversation", "agent": "agent"}
+        lambda state: choose_route(router_llm, state["messages"]),
+        {"conversation": "conversation",
+         "agent_local": "agent_local",
+         "agent_critical": "agent_critical"}
     )
     graph.add_edge("conversation", END)
-    graph.add_edge("agent", END)
+    graph.add_edge("agent_local", END)
+    graph.add_edge("agent_critical", END)
     return graph.compile(checkpointer=checkpointer)
 
 
-def build_agent(llm, tools, checkpointer=None, tools_needing_confirmation=()):
-    """Agent over the tools it is given: the documents RAG and the MCP
-    servers (calendar, qonto...) are all built by the caller. Passing a
-    checkpointer enables multi-turn conversations (one thread_id per
-    conversation). No response_format on purpose: a constrained output
-    grammar competes with tool calling on some models; the agent cites
-    inline instead (see parse_citations). Tools are listed as needing a
-    confirmation when they have side effects: the graph interrupts before
-    running them and only resumes on an explicit approval."""
-    middleware = [system_prompt, fresh_retrieval]
-    if tools_needing_confirmation:
+def build_agent(profile, checkpointer=None):
+    """Agent over one profile: the model, tools and system prompt of a
+    branch, all built by the caller. Passing a checkpointer enables
+    multi-turn conversations (one thread_id per conversation). No
+    response_format on purpose: a constrained output grammar competes with
+    tool calling on some models; the agent cites inline instead (see
+    parse_citations). Tools are listed as needing a confirmation when they
+    have side effects: the graph interrupts before running them and only
+    resumes on an explicit approval."""
+    middleware = [dated_system_prompt(profile.system_prompt), fresh_retrieval]
+    if profile.tools_needing_confirmation:
         middleware.append(HumanInTheLoopMiddleware(
-            interrupt_on={name: True for name in tools_needing_confirmation}))
+            interrupt_on={name: True for name in profile.tools_needing_confirmation}))
     return create_agent(
-        model=llm,
-        tools=list(tools),
+        model=profile.llm,
+        tools=list(profile.tools),
         middleware=middleware,
         checkpointer=checkpointer)
 
@@ -213,6 +252,24 @@ def tool_outcomes(messages):
         else:
             succeeded += 1
     return failed, succeeded
+
+
+def models_of_turn(messages):
+    """Names of the models that generated the turn's answers, read from the
+    response metadata the framework stamps ("model" for Ollama, "model_name"
+    for OpenAI-compatible providers) - never from the model's own words.
+    :param messages: The messages of the current turn.
+    :return: Distinct model names, in order of first answer.
+    """
+    names = []
+    for message in messages:
+        if not isinstance(message, AIMessage):
+            continue
+        metadata = getattr(message, "response_metadata", None) or {}
+        name = metadata.get("model_name") or metadata.get("model")
+        if name and name not in names:
+            names.append(name)
+    return names
 
 
 def collect_queries(messages):

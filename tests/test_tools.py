@@ -5,7 +5,7 @@ from langchain_core.documents import Document
 from pydantic import BaseModel
 
 from src.tools import (tools_needing_confirmation, build_calendar_finder, build_rag_tool,
-                       resolve_default, sync_mcp_tool)
+                       mcp_tools_of_agent, resolve_default, sync_mcp_tool)
 
 
 class FakeRetriever:
@@ -198,14 +198,33 @@ class FakeOptionalTool:
         return f"echo:{kwargs.get('message')}"
 
 
-def test_tools_needing_confirmation_uses_renamed_tools():
-    config = {"mcp": [
-        {"name": "calendar_pro", "confirm": ["create-event"]},
-        {"name": "calendar_perso", "confirm": ["create-event"]},
-        {"name": "readonly_server"},
-    ]}
-    assert tools_needing_confirmation(config) == ["calendar_pro_create_event",
-                                            "calendar_perso_create_event"]
+SPLIT_CONFIG = {"mcp": [
+    {"name": "calendar_pro", "confirm": ["create-event"]},
+    {"name": "calendar_perso", "agent": "local", "confirm": ["create-event"]},
+    {"name": "qonto", "agent": "critical", "confirm": ["create-client-invoice"]},
+]}
+
+
+def test_tools_needing_confirmation_uses_renamed_tools_of_one_agent():
+    # A server without an "agent" key belongs to the local agent
+    assert tools_needing_confirmation(SPLIT_CONFIG, "local") == [
+        "calendar_pro_create_event", "calendar_perso_create_event"]
+    assert tools_needing_confirmation(SPLIT_CONFIG, "critical") == [
+        "qonto_create_client_invoice"]
+
+
+def test_mcp_tools_of_agent_splits_on_the_server_prefix():
+    class NamedTool:
+        def __init__(self, name):
+            self.name = name
+
+    loaded = [NamedTool("calendar_pro_list_events"), NamedTool("calendar_perso_list_events"),
+              NamedTool("qonto_list_transactions")]
+    local = mcp_tools_of_agent(SPLIT_CONFIG, loaded, "local")
+    critical = mcp_tools_of_agent(SPLIT_CONFIG, loaded, "critical")
+    assert [t.name for t in local] == ["calendar_pro_list_events", "calendar_perso_list_events"]
+    assert [t.name for t in critical] == ["qonto_list_transactions"]
+    assert mcp_tools_of_agent({"mcp": []}, loaded, "critical") == []
 
 
 ISO_SECONDS = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z")

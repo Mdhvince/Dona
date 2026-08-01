@@ -1,7 +1,8 @@
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
 from src.agent import (collect_queries, collect_sources, conversation_only,
-                       current_turn, parse_citations, choose_route, tool_outcomes)
+                       current_turn, models_of_turn, parse_citations,
+                       choose_route, tool_outcomes)
 from src.tools import TOOL_ERROR
 
 
@@ -136,24 +137,74 @@ class FakeRouterLLM:
     def __init__(self, verdict=None, error=False):
         self.verdict = verdict
         self.error = error
+        self.prompt = None
 
     def invoke(self, prompt):
+        self.prompt = prompt
         if self.error:
             raise RuntimeError("router down")
         return AIMessage(content=self.verdict)
 
 
+def question(text):
+    return [HumanMessage(content=text)]
+
+
 def test_route_sends_small_talk_to_the_conversation_branch():
-    assert choose_route(FakeRouterLLM("CONVERSATION"), "merci") == "conversation"
+    assert choose_route(FakeRouterLLM("CONVERSATION"), question("merci")) == "conversation"
 
 
-def test_route_defaults_to_the_tool_agent():
-    # Anything but an explicit CONVERSATION verdict, including junk, a
-    # refusal or a router failure: answering without tools would hallucinate
-    assert choose_route(FakeRouterLLM("OUTILS"), "mon SIRET ?") == "agent"
-    assert choose_route(FakeRouterLLM("je ne sais pas"), "mon SIRET ?") == "agent"
-    assert choose_route(FakeRouterLLM(""), "mon SIRET ?") == "agent"
-    assert choose_route(FakeRouterLLM(error=True), "mon SIRET ?") == "agent"
+def test_route_sends_documents_and_calendar_to_the_local_agent():
+    assert choose_route(FakeRouterLLM("LOCAL"), question("mon SIRET ?")) == "agent_local"
+
+
+def test_route_defaults_to_the_critical_agent():
+    # Anything but an explicit CONVERSATION or LOCAL verdict, junk and
+    # refusals included: the critical agent can do all the local one can,
+    # the reverse is false
+    assert choose_route(FakeRouterLLM("CRITIQUE"), question("mon solde ?")) == "agent_critical"
+    assert choose_route(FakeRouterLLM("je ne sais pas"), question("mon solde ?")) == "agent_critical"
+    assert choose_route(FakeRouterLLM(""), question("mon solde ?")) == "agent_critical"
+
+
+def test_route_falls_back_on_the_local_agent_when_the_router_is_down():
+    # The router is hosted: its outage must not take the assistant down
+    assert choose_route(FakeRouterLLM(error=True), question("mon solde ?")) == "agent_local"
+
+
+def test_route_reads_the_conversation_without_tool_traces():
+    router = FakeRouterLLM("LOCAL")
+    history = [HumanMessage(content="mes depenses de juin ?"),
+               AIMessage(content="", tool_calls=[{"name": "rag", "id": "1", "args": {}}]),
+               tool_message([A24]),
+               AIMessage(content="1200 euros"),
+               HumanMessage(content="et le mois d'avant ?")]
+    choose_route(router, history)
+    assert "mes depenses de juin ?" in router.prompt
+    assert "1200 euros" in router.prompt
+    assert "et le mois d'avant ?" in router.prompt
+    assert "extraits" not in router.prompt
+
+
+def test_models_of_turn_reads_framework_metadata_and_deduplicates():
+    messages = [
+        HumanMessage(content="q"),
+        AIMessage(content="", response_metadata={"model_name": "kimi-k2.6"},
+                  tool_calls=[{"name": "qonto_list_cards", "id": "1", "args": {}}]),
+        tool_message([]),
+        AIMessage(content="r", response_metadata={"model_name": "kimi-k2.6"}),
+    ]
+    assert models_of_turn(messages) == ["kimi-k2.6"]
+
+
+def test_models_of_turn_reads_the_ollama_key_and_keeps_order():
+    messages = [AIMessage(content="a", response_metadata={"model": "qwen3.6:35b-mlx"}),
+                AIMessage(content="b", response_metadata={"model_name": "kimi-k2.6"})]
+    assert models_of_turn(messages) == ["qwen3.6:35b-mlx", "kimi-k2.6"]
+
+
+def test_models_of_turn_without_metadata():
+    assert models_of_turn([HumanMessage(content="q"), AIMessage(content="r")]) == []
 
 
 def test_conversation_only_leaves_a_single_turn_untouched():

@@ -5,7 +5,7 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 from langchain_ollama import ChatOllama
-from langchain_openai import OpenAIEmbeddings
+from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 
 CONFIG_PATH = Path(__file__).parent.parent / "config.toml"
 ENV_PATH = Path(__file__).parent.parent / ".env"
@@ -50,16 +50,16 @@ def docs_dirs():
     return dirs
 
 
-def llm_client(config):
-    """Keys in [llm] (model, base_url, temperature, num_predict, reasoning...)
-    map directly to ChatOllama arguments and are passed through as-is."""
-    return ChatOllama(**config["llm"])
-
-
-def router_client(config):
-    """Same model as the agent but without thinking: routing and small talk
-    answer in a fraction of a second, and reuse the already loaded weights."""
-    return ChatOllama(**config["router"])
+def chat_client(config, section):
+    """Chat client for one config block, dispatched on its "provider" key:
+    "ollama" (default, native API) or "openai" (any OpenAI-compatible API,
+    Melious here). The other keys map directly to the client arguments and
+    are passed through as-is."""
+    settings = dict(config[section])
+    provider = settings.pop("provider", "ollama")
+    if provider == "openai":
+        return ChatOpenAI(**settings)
+    return ChatOllama(**settings)
 
 
 def vlm_client(config):

@@ -86,14 +86,29 @@ def sync_mcp_tool(mcp_tool, name, description=None, json_result=False,
         args_schema=mcp_tool.args_schema)
 
 
-def tools_needing_confirmation(config):
-    """Renamed names of the tools a server declares as side-effecting: the
-    agent may only run them after an explicit confirmation."""
+def _servers_of_agent(config, agent):
+    return [server for server in config.get("mcp", [])
+            if server.get("agent", "local") == agent]
+
+
+def tools_needing_confirmation(config, agent):
+    """Renamed names of the tools the servers of this agent declare as
+    side-effecting: they may only run after an explicit confirmation."""
     names = []
-    for server in config.get("mcp", []):
+    for server in _servers_of_agent(config, agent):
         for tool_name in server.get("confirm", []):
             names.append(f"{server['name']}_{tool_name}".replace("-", "_"))
     return names
+
+
+def mcp_tools_of_agent(config, mcp_tools, agent):
+    """The loaded MCP tools belonging to this agent's servers, matched by
+    the <server>_ prefix their loading gave them."""
+    prefixes = tuple(f"{server['name']}_".replace("-", "_")
+                     for server in _servers_of_agent(config, agent))
+    if not prefixes:
+        return []
+    return [mcp_tool for mcp_tool in mcp_tools if mcp_tool.name.startswith(prefixes)]
 
 
 def load_mcp_tools(config):

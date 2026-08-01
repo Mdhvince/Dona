@@ -23,7 +23,10 @@ reconstruit après chaque ré-indexation.
     tables, assaini par nh3 - python-markdown laisse passer le HTML brut,
     vecteur XSS via un document indexé malveillant), `status` ("ok" ou
     "error"), sources citées [{name, page, url}], nombre de documents
-    consultés, requêtes émises, et `failed_tools`. `status` vaut "error"
+    consultés, requêtes émises, `failed_tools`, et `models` - les noms des
+    modèles ayant généré les réponses du tour, lus dans les
+    `response_metadata` posés par le framework (jamais déclarés par le
+    modèle lui-même) et affichés en texte discret sous la réponse. `status` vaut "error"
     quand tous les appels d'outils du tour ont échoué (le front affiche un
     message d'erreur fixe à la place de la réponse du modèle) et "partial"
     quand une partie a réussi (la réponse s'affiche sous un bandeau fixe

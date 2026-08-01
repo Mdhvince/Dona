@@ -1,18 +1,45 @@
 # Assistant configuration - API keys and personal data (emails, paths) stay
 # in .env as ${VAR} placeholders - see .env.example
 
-[llm]
-# Chat model of the agent, through Ollama's native API. Reasoning stays on:
-# for agents, tool-call discipline lives in the thinking.
+# Chat models, one block per role. provider = "ollama" (default, native API)
+# or "openai" (any OpenAI-compatible API, here Melious: GDPR-compliant
+# hosting of open-source models); the other keys are passed to the client
+# as-is.
+
+[agent_local]
+# Agent over the local data (documents, calendars), through Ollama's native
+# API. Reasoning stays on: for agents, tool-call discipline lives in the
+# thinking.
 model = "qwen3.6:35b-mlx"
 base_url = "http://localhost:11434"
 temperature = 0.15
 num_predict = 4000  # structured output with long answers gets truncated below this
 reasoning = true  # surfaces thinking tokens so the UI can show live progress
 
+[agent_critical]
+# Agent over the sensitive domains (bank, emails): a stronger hosted model,
+# because a tool-call mistake there costs more than latency.
+provider = "openai"
+model = "kimi-k2.6"
+base_url = "https://api.melious.ai/v1"
+api_key = "${MELIOUS_DONA_API_KEY}"
+temperature = 0.15
+max_tokens = 4000
+
 [router]
-# Same weights as [llm] (think is a per-request flag, so no extra memory):
-# routing and small talk skip the thinking, the tool agent keeps it.
+# Routing verdicts only (one word). A router failure falls back on the
+# local agent, so the assistant keeps working offline.
+provider = "openai"
+model = "gpt-oss-120b"
+base_url = "https://api.melious.ai/v1"
+api_key = "${MELIOUS_DONA_API_KEY}"
+temperature = 0.0
+max_tokens = 200
+reasoning_effort = "low"  # a verdict needs no deliberation; keeps routing off the latency path
+
+[conversation]
+# Small talk, answered locally without thinking: think is a per-request
+# flag, so this reuses the [agent_local] weights with no extra memory.
 model = "qwen3.6:35b-mlx"
 base_url = "http://localhost:11434"
 temperature = 0.0
@@ -44,13 +71,15 @@ rrf_k = 60    # Reciprocal Rank Fusion smoothing constant
 chunk_size = 1000
 chunk_overlap = 100
 
-# MCP servers exposed to the agent as tools, one block per server (stdio);
-# tools get renamed <name>_<tool>, "tools" is a read-only whitelist,
-# fixed_args pins values the model must not control, json_result declares
-# that valid results are JSON (anything else = tool error).
+# MCP servers exposed as tools, one block per server; "agent" assigns the
+# server to one branch ("local" or "critical", default "local"). Tools get
+# renamed <name>_<tool>, "tools" is a whitelist, fixed_args pins values the
+# model must not control, json_result declares that valid results are JSON
+# (anything else = tool error).
 
 [[mcp]]
 name = "calendar_pro"
+agent = "local"
 command = "npx"
 args = ["-y", "@cocal/google-calendar-mcp"]
 tools = ["list-calendars", "list-events", "search-events", "get-freebusy", "get-current-time", "create-event"]
@@ -66,6 +95,7 @@ GOOGLE_ACCOUNT_MODE = "pro"
 
 [[mcp]]
 name = "calendar_perso"
+agent = "local"
 command = "npx"
 args = ["-y", "@cocal/google-calendar-mcp"]
 tools = ["list-calendars", "list-events", "search-events", "get-freebusy", "get-current-time", "create-event"]
@@ -81,12 +111,45 @@ GOOGLE_ACCOUNT_MODE = "perso"
 
 [[mcp]]
 name = "qonto"
+agent = "critical"
 transport = "http"
 url = "https://mcp.qonto.com/mcp"
-# The server exposes 62 tools, many of them side-effecting (cards,
-# transfers, invoices): only read-only ones are given to the agent
-tools = ["get_organization", "list_transactions", "get_transaction",
-         "list_statements", "list_client_invoices", "list_supplier_invoices",
-         "list_cards"]
+# All 62 server tools except the delete_* ones (irreversible, excluded even
+# from the whitelist). Reads run freely; every write sits in "confirm".
+tools = [
+    # reads
+    "get_attachment", "get_authenticated_membership", "get_card_iframe_url",
+    "get_client", "get_client_invoice", "get_credit_note", "get_label",
+    "get_organization", "get_payment_link", "get_qonto_public_pricing",
+    "get_quote", "get_statement", "get_subscription", "get_supplier_invoice",
+    "get_transaction", "list_cards", "list_cash_flow_categories",
+    "list_client_invoices", "list_clients", "list_credit_notes", "list_labels",
+    "list_memberships", "list_payment_links", "list_products", "list_quotes",
+    "list_requests", "list_statements", "list_supplier_invoices", "list_teams",
+    "list_transaction_attachments", "list_transactions",
+    # writes, all behind an explicit confirmation
+    "approve_request", "change_card_status", "change_client_invoice_status",
+    "change_supplier_invoice_status", "create_card", "create_card_request",
+    "create_cash_flow_category", "create_client", "create_client_invoice",
+    "create_credit_note", "create_membership", "create_multi_transfer_request",
+    "create_payment_link", "create_product", "create_quote", "create_team",
+    "decline_request", "mark_client_invoice_as_paid",
+    "modify_transaction_cash_flow_category", "remove_transaction_attachment",
+    "request_attachment_upload", "send_client_invoice", "send_quote",
+    "update_card", "update_client", "update_client_invoice", "update_quote",
+    "upload_attachment",
+]
+confirm = [
+    "approve_request", "change_card_status", "change_client_invoice_status",
+    "change_supplier_invoice_status", "create_card", "create_card_request",
+    "create_cash_flow_category", "create_client", "create_client_invoice",
+    "create_credit_note", "create_membership", "create_multi_transfer_request",
+    "create_payment_link", "create_product", "create_quote", "create_team",
+    "decline_request", "mark_client_invoice_as_paid",
+    "modify_transaction_cash_flow_category", "remove_transaction_attachment",
+    "request_attachment_upload", "send_client_invoice", "send_quote",
+    "update_card", "update_client", "update_client_invoice", "update_quote",
+    "upload_attachment",
+]
 json_result = true
-description_suffix = "(Compte bancaire professionnel Myelink, lecture seule.)"
+description_suffix = "(Compte bancaire professionnel Myelink. Toute écriture demande ma confirmation.)"

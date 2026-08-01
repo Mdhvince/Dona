@@ -14,12 +14,13 @@ import sqlite3
 from langgraph.checkpoint.sqlite import SqliteSaver
 from langgraph.types import Command
 
-from src.agent import (build_graph, collect_queries, collect_sources,
-                       current_turn, parse_citations, source_label,
-                       tool_outcomes)
+from src.agent import (AgentProfile, build_graph, collect_queries,
+                       collect_sources, current_turn, models_of_turn,
+                       parse_citations, source_label, tool_outcomes)
+from src.prompt import SYSTEM_PROMPT_CRITICAL, SYSTEM_PROMPT_LOCAL
 from src.tools import (build_calendar_finder, build_rag_tool, load_mcp_tools,
-                       tools_needing_confirmation)
-from src.config import (load_config, docs_dirs, llm_client, router_client,
+                       mcp_tools_of_agent, tools_needing_confirmation)
+from src.config import (load_config, docs_dirs, chat_client,
                         embedding_client, vlm_client)
 from src.ingestor import Ingestor
 from src.retrieval import HybridRetriever
@@ -34,8 +35,10 @@ config = load_config()
 # Read once at startup: the roots serve both the reindex and the
 # /source route, which only serves files under them
 DOCS_DIRS = docs_dirs()
-chat_llm = llm_client(config)
-router_llm = router_client(config)
+local_llm = chat_client(config, "agent_local")
+critical_llm = chat_client(config, "agent_critical")
+router_llm = chat_client(config, "router")
+conversation_llm = chat_client(config, "conversation")
 vectordb = Chroma(persist_directory=PERSIST_DIR,
                   embedding_function=embedding_client(config))
 
@@ -45,25 +48,39 @@ agent = None
 # reindex thread share the connection, SqliteSaver serializes the accesses.
 checkpointer = SqliteSaver(sqlite3.connect(str(ROOT / "conversations.db"),
                                            check_same_thread=False))
-# Loaded once at startup: stateless, so reindex rebuilds reuse them as is
+# Loaded once at startup and split by agent: stateless, so reindex rebuilds
+# reuse them as is
 mcp_tools = load_mcp_tools(config)
-calendar_finder = build_calendar_finder(mcp_tools)
-extra_tools = mcp_tools + ([calendar_finder] if calendar_finder else [])
+local_mcp_tools = mcp_tools_of_agent(config, mcp_tools, "local")
+critical_mcp_tools = mcp_tools_of_agent(config, mcp_tools, "critical")
+calendar_finder = build_calendar_finder(local_mcp_tools)
+local_extra_tools = local_mcp_tools + ([calendar_finder] if calendar_finder else [])
 
 
 def build_rag_agent():
     """(Re)build the agent and its retriever. BM25 is an in-memory index, so
     it must be rebuilt after every vector store update, and with it the RAG
-    tool that closes over it. Stays None while the store is empty (first
-    launch before any indexing)."""
+    tool that closes over it - shared by both branches, so cross-domain
+    questions can reach the documents from either side. Stays None while the
+    store is empty (first launch before any indexing)."""
     global agent
     if not vectordb.get(limit=1)["ids"]:
         agent = None
         return
     retriever = HybridRetriever.from_vectordb(vectordb, **config["retriever"])
-    tools = [build_rag_tool(retriever), *extra_tools]
-    agent = build_graph(chat_llm, router_llm, tools, checkpointer,
-                        tools_needing_confirmation=tools_needing_confirmation(config))
+    rag_tool = build_rag_tool(retriever)
+    local_profile = AgentProfile(
+        llm=local_llm,
+        tools=[rag_tool, *local_extra_tools],
+        system_prompt=SYSTEM_PROMPT_LOCAL,
+        tools_needing_confirmation=tools_needing_confirmation(config, "local"))
+    critical_profile = AgentProfile(
+        llm=critical_llm,
+        tools=[rag_tool, *critical_mcp_tools],
+        system_prompt=SYSTEM_PROMPT_CRITICAL,
+        tools_needing_confirmation=tools_needing_confirmation(config, "critical"))
+    agent = build_graph(router_llm, conversation_llm,
+                        local_profile, critical_profile, checkpointer)
 
 
 build_rag_agent()
@@ -180,7 +197,8 @@ def agent_events(agent_input, thread_id):
         "failed_tools": sorted(set(failed)),
         "sources": sources_payload(sources),
         "consulted": len(retrieved),
-        "queries": collect_queries(turn)}) + "\n"
+        "queries": collect_queries(turn),
+        "models": models_of_turn(turn)}) + "\n"
 
 
 def stream_run(agent_input, thread_id):

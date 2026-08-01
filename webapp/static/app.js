@@ -93,6 +93,14 @@ function addBotMessage(html, { plainText = false, error = false } = {}) {
   return message;
 }
 
+function addModelsLine(models) {
+  if (!models || models.length === 0) return;
+  const line = document.createElement("div");
+  line.className = "message-models";
+  line.textContent = `Répondu par ${models.join(", ")}`;
+  messagesEl.appendChild(line);
+}
+
 function addWarning(text) {
   const warning = document.createElement("div");
   warning.className = "message-warning";
@@ -479,6 +487,7 @@ async function run(url, payload) {
     }
 
     addBotMessage(data.response);
+    addModelsLine(data.models);
     addSources(data.sources);
   } catch (err) {
     radar.remove();
